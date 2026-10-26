@@ -43,7 +43,7 @@ Its full assembly guide is [`examples/reference-tower/Assembly guide.pdf`](examp
 ## Install
 
 ### Option 1: the built app
-Download `Tower Designer-macOS.zip` from the [Releases](../../releases) page, unzip it and open **Tower Designer.app**.
+Download `Tower.Designer-macOS.zip` from the [Releases](../../releases) page, unzip it and open **Tower Designer.app**.
 
 The app isn't signed. The first time, right-click it, choose **Open**, then confirm. It's built for Apple silicon Macs.
 
