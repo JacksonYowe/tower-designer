@@ -1,0 +1,68 @@
+{
+  "family": "diagrid3",
+  "params": {
+    "n_sides": 19,
+    "twist": 0.3722145087634917,
+    "base_r": 63.718840659723554,
+    "top_ratio": 0.7759258148317951,
+    "ring_every": 2,
+    "joint": "lap",
+    "ring_joint": "scarf",
+    "member_type": "shaved",
+    "cap_mode": "strips",
+    "base_mode": "strips",
+    "member_t": 3.0,
+    "member_w": 3.0,
+    "brace_t": 3.0,
+    "brace_w": 3.0,
+    "ring_t": 3.0,
+    "ring_w": 3.0,
+    "cap_t": 3.0,
+    "cap_w": 3.0,
+    "base_t": 3.0,
+    "base_w": 3.0
+  },
+  "spec": {
+    "height": 211.0,
+    "min_height": 210.0,
+    "pole_d": 25.0,
+    "clearance": 1.5,
+    "max_mass": 20.0,
+    "margin": 1.03,
+    "max_joints": 400,
+    "jig_slot": 3.3,
+    "wood": "teacher",
+    "measured_density": 0.0,
+    "measured_fc": 0.0,
+    "measured_E": 0.0,
+    "quality": 0.85,
+    "glue": "mixed",
+    "glue_factor": 4.8,
+    "glue_factors": {},
+    "symmetric_glue": true,
+    "imperfection": 0.004,
+    "lateral": 0.01,
+    "uneven": 0.2,
+    "sway": 1.0,
+    "global_knockdown": 0.85,
+    "char": 0.15,
+    "objective": "load",
+    "families": [
+      "stick3",
+      "diagrid3"
+    ],
+    "effort": "thorough",
+    "allow_sticks": true,
+    "bed": [
+      256.0,
+      256.0,
+      256.0
+    ]
+  },
+  "summary": {
+    "load_kg": 83.26132153832653,
+    "mass_g": 19.244842942065876,
+    "governing": "Strip B3 crushes",
+    "glue": "mixed"
+  }
+}

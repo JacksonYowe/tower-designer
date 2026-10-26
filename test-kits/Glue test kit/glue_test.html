@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Glue test</title><style>
+body{font:15px/1.5 -apple-system,Helvetica,sans-serif;max-width:900px;margin:24px auto;padding:0 16px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #bbb;padding:6px;vertical-align:top}
+th{background:#f4efe8}.box{min-width:70px}li{margin-bottom:6px}</style></head><body>
+<h1>Glue test — how much glue does <i>your</i> hand leave?</h1>
+<p>The app estimates glue per joint from each glue's viscosity and the joint's size, then multiplies by a
+<b>hand factor</b> for how you actually apply it. This test measures that factor for each glue, so the tower's
+mass budget is based on your gluing, not a guess.</p>
+<h2>You need</h2>
+<ul><li>Per glue: one 100 mm length of Boyle 5 × 5 mm square rod (the "host") and 5 strips
+2.5 × 3 × 30 mm — laser cut from <code>glue_test_strips_1.dxf</code> (labelled PV1…, CA1…, EP1…, BC1…;
+one spare each).</li>
+<li>The printed jig: <code>glue_test_jig_base.stl</code> and <code>glue_test_jig_comb.stl</code> (optional but keeps every joint square).</li>
+<li>A scale reading to 0.01 g (0.001 g is better), the glues, a toothpick per glue, a pencil.</li></ul>
+<h2>Method</h2>
+<ol>
+<li><b>Label</b> each host rod with its glue (pencil). Keep each glue's host and strips together.</li>
+<li><b>Weigh before:</b> put one host and its 5 strips on the scale together. Write the mass in the table. Do this for every glue.</li>
+<li><b>Set up:</b> lay the host in the jig channel and sit the comb on its pegs.</li>
+<li><b>Glue</b> each strip: put glue on one END of the strip exactly the way you will on the real tower
+(same toothpick, same size dab, same wiping). Push it down through the comb onto the host and hold it a few seconds.
+Don't add extra just because it's a test — the point is to copy your real habit.</li>
+<li><b>Wipe</b> squeeze-out the way you would on the tower (or don't, if you won't).</li>
+<li><b>Cure</b> fully (times below). Lift the comb off carefully. PVA and balsa cement lose water/solvent for a day —
+weigh again the next day and use the lower reading.</li>
+<li><b>Weigh after:</b> the host with its 5 glued strips. Write it down.</li>
+<li><b>Enter</b> the before and after masses in the app: <i>Wood and glue → Glue test…</i>, then click <b>Apply</b>.
+The app sets each glue's factor and every design is re-weighed with your real glue amounts.</li>
+</ol>
+<p><small>Why the strip end goes onto the side of the rod: that is the most common joint in the tower (a brace or ring
+ending on a leg), and the end grain soaks up glue the way it will on the real thing. Do all glues on the same day,
+with the same wood, so they compare fairly.</small></p>
+<h2>Results</h2>
+<table><tr><th>Glue</th><th>Strips</th><th>Cure</th><th>App currently expects per joint</th><th>Before (g)</th><th>After (g)</th><th>Gain ÷ 5 (mg)</th></tr>
+<tr><td><b>PVA wood glue</b><br><small>Selleys Aquadhere Quick Set PVA (interior)</small></td><td>PV1–PV5</td><td>24 h</td><td>45 mg wet → 22 mg dry</td><td class=box></td><td class=box></td><td class=box></td></tr><tr><td><b>Superglue (thin CA)</b><br><small>Loctite Super Glue liquid</small></td><td>CA1–CA5</td><td>1 h</td><td>27 mg wet → 27 mg dry</td><td class=box></td><td class=box></td><td class=box></td></tr><tr><td><b>5-minute epoxy</b><br><small>Selleys Araldite 5 Minute (mix 1:1)</small></td><td>EP1–EP5</td><td>24 h</td><td>62 mg wet → 62 mg dry</td><td class=box></td><td class=box></td><td class=box></td></tr><tr><td><b>Balsa cement</b><br><small>UHU Hart balsa cement</small></td><td>BC1–BC5</td><td>12 h</td><td>31 mg wet → 9 mg dry</td><td class=box></td><td class=box></td><td class=box></td></tr></table>
+<p><small>Standard joint: 7.5 mm² glued, 11 mm of edge, all end grain on the strip side.</small></p>
+</body></html>
