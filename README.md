@@ -33,9 +33,9 @@ It builds only from 3 × 3 mm sticks: every piece is one full-size stick, and on
 - **Calibrates to your materials.** Printable wood and glue test kits measure your sticks and your gluing, and the app uses the results.
 - **Exports a build pack.** It contains:
   - `tower.step` (one solid per stick) and `tower.stl`
-  - every jig part as STL and STEP, each with an engraved ID: base plate, keyed mast, spacers with collar-support discs, numbered collar segments, cutting guide with stops, strip-end and ring-end sanding jigs, marking gauge and a fit-test coupon
+  - every jig part as STL and STEP, each with an engraved ID: base plate, keyed mast, spacers with collar-support discs, numbered collar segments, cutting guides (strips, ring pieces) with saw guides and kerf-compensated stops, strip-end and ring-end sanding jigs, marking gauge and a fit-test coupon
   - a 3D model and picture of every build step
-  - a long assembly guide PDF: cut list, grain, a glue map with colour codes, a print plan, step-by-step instructions with weigh-ins, and a section on fixing mistakes
+  - a long assembly guide PDF: a "read this first" rules page, the whole build at a glance, cut list, grain, a glue map with colour codes, a print plan, step-by-step instructions (each with a "you need" box and time), weigh-ins, and a section on fixing mistakes
 
 ## Reference tower
 

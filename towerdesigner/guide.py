@@ -134,6 +134,19 @@ def svg_shingle() -> str:
 </svg>"""
 
 
+def svg_saw_side() -> str:
+    """Top view of a saw slot: saw on the left (waste) face."""
+    return """<svg viewBox="0 0 300 120" width="280" height="112" xmlns="http://www.w3.org/2000/svg">
+<rect x="10" y="45" width="280" height="22" fill="#eef1f5" stroke="#889"/>
+<rect x="20" y="49" width="120" height="14" fill="#e0bb84" stroke="#7a4f22"/><text x="40" y="60" font-size="10">waste (stick)</text>
+<rect x="150" y="49" width="110" height="14" fill="#f0d3a3" stroke="#7a4f22"/><text x="175" y="60" font-size="10">piece</text>
+<rect x="260" y="40" width="10" height="32" fill="#a9c3f5" stroke="#4a6fb5"/><text x="236" y="88" font-size="10">stop</text>
+<rect x="140" y="20" width="10" height="72" fill="#fff" stroke="#4a6fb5"/>
+<rect x="140" y="20" width="5" height="72" fill="#c92a2a" opacity="0.8"/>
+<text x="60" y="16" font-size="10" fill="#c92a2a">saw blade here: left face of the slot</text>
+<text x="120" y="108" font-size="10">saw slot (seen from above)</text></svg>"""
+
+
 def svg_crossing() -> str:
     return """<svg viewBox="0 0 340 140" width="300" height="124" xmlns="http://www.w3.org/2000/svg">
 <g transform="rotate(-20 150 70)"><rect x="139" y="0" width="22" height="140" fill="#e9c48d" stroke="#7a4f22"/></g>
@@ -555,6 +568,7 @@ def make_guide_html(st: Structure, res: Result, spec: Spec, jig_parts, images: d
     cum = 0.0
     step_html = ""
     prev_jig = None
+    glance = []
     for n, stp in enumerate(steps, start=1):
         pset = set(stp.parts)
         js = [j for j, jt in enumerate(st.joints) if all(p in done | pset for p in jt.parts)
@@ -584,8 +598,23 @@ def make_guide_html(st: Structure, res: Result, spec: Spec, jig_parts, images: d
         prev_jig = stp.jig
         cure = ("<p class='warn'>⏸ <b>Wait at least 1 hour</b> before the next step so the glue can grab. Don't load "
                 "or remove anything for 12 hours.</p>" if js and stp.key not in ("remove",) else "")
+        minutes = {"jig": 30, "strips_a": 40, "remove": 45}.get(stp.key, max(20, round(1.2 * len(js) + 0.5 * len(stp.parts))))
+        wait = ("2 h (strips dry to their twist)" if stp.key == "strips_a" else "24 h" if stp.key == "cap" else
+                "1 h" if js else "—")
+        glues = sorted({GLUES[res.joint_glue[j]].name for j in js})
+        need = (f"<div class='need'><b>You need:</b> {len(stp.parts) or 'no'} pieces"
+                + (f" ({E(', '.join(sorted({st.parts[i].group or '' for i in stp.parts})))})" if stp.parts else "")
+                + f" · jig: {'as set up' if stp.jig else 'none'}"
+                + (f" · glue: {E(', '.join(glues))}, brush or toothpick, pegs" if glues else "")
+                + f" · about <b>{minutes} min</b> · then wait: <b>{wait}</b></div>")
+        undo = ("<p class='stop'>⚠ <b>Glue is hard to undo.</b> Do the dry fit first and check every item under "
+                "“Check” before the glue goes on. If something doesn't fit, <b>stop</b> and look in Troubleshooting: "
+                "never force a piece or fill a gap with glue.</p>" if js else "")
+        glance.append((n, stp.title, len(stp.parts), len(js), minutes, wait))
         step_html += f"""<div class="stepbox">
 <h3>Step {n}. {E(stp.title)}</h3>
+{need}
+{undo}
 <div class="cols"><div style="flex:0 0 42%">{pic}<p class="s">3D model of this step: <code>{E(stp.model or '—')}</code>
 (open in Onshape: blue = jig, tan = already built, orange = this step, coloured dots = glue)</p></div><div>
 <p><b>Jig files on the bench:</b><br>{jig_txt}</p>
@@ -634,7 +663,7 @@ def make_guide_html(st: Structure, res: Result, spec: Spec, jig_parts, images: d
 <div class="cols"><div style="flex:0 0 46%">{_img(images.get('prep'))}<p class="s">The preparation jigs, each with its ID engraved.</p></div><div>
 <p><b>Jigs for this step:</b></p><ul>
 <li>{lab('fit_test_coupon')}<code>fit_test_coupon.stl</code>: finds the slot size your sticks need. Print it first.</li>
-<li>{_lab('cutting_guide_1')}<code>cutting_guide_1.stl</code>: one channel per piece, each with a saw slot and a stop one piece-length away. Channel numbers and lengths are engraved beside each channel.</li>
+{"".join(f"<li>{_lab(j.name)}<code>{E(j.name)}.stl</code>: cutting guide, {'strips' if j.name.endswith('_1') else 'ring pieces'}. A saw guide over each slot and a stop one piece-length away; every channel is engraved with its piece, length and count.</li>" for j in jig_parts if j.name.startswith("cutting_guide"))}
 {f"<li>{lab('marking_gauge')}<code>marking_gauge.stl</code>: marks where every crossing and ring goes on a strip, and checks its length.</li>" if level else ''}
 {sj_li}
 {f"<li>{_lab('scarf_sanding_guide')}<code>scarf_sanding_guide.stl</code>: makes the 1-in-3 scarf on every ring end. Two grooves: O UP and O DOWN.</li>" if has_scarf else ''}
@@ -646,7 +675,7 @@ def make_guide_html(st: Structure, res: Result, spec: Spec, jig_parts, images: d
 <li><b>Check the fit.</b> Slide a stick into each slot of {lab('fit_test_coupon')}. Find the smallest slot it slides into with light friction. If that isn't 3.3, set <b>Jig slot size</b> in the app to that number and export the build pack again before printing the other jigs.</li>
 <li><b>Sort the sticks.</b> Weigh each stick and number them 1–{n_sticks} in pencil, heaviest first. <b>Go/no-go:</b> the {n_sticks} sticks together should weigh no more than <b>{n_sticks * stick_len * 9e-9 * w.density * 1000 * (spec.max_mass - res.mass.glue) / res.mass.wood:.1f} g</b>. Heavier than that and the finished tower will be over {spec.max_mass:.0f} g: do the wood test and re-run the design in the app with your density. The stick plan in section 9 puts the strips on sticks 1–{n_strip_sticks}.</li>
 <li><b>Label {len(cups)} cups:</b> {E('; '.join(cups))}. Every piece goes straight into its cup.</li>
-<li><b>Cut to length</b> in {_lab('cutting_guide_1')}(full method in section 9). Square up the stick's end at the slot first. Then for each piece: push the stick along until its end touches the stop, and saw at the slot. No measuring: the stop sets the length.</li>
+<li><b>Cut to length</b> in {"".join(_lab(j.name) for j in jig_parts if j.name.startswith("cutting_guide"))}(full method and picture in section 9). Square up the stick's end at the slot first. Then for each piece: push the stick along until its end touches the stop, and saw against the <b>left face</b> of the slot. No measuring: the stop sets the length. Pencil an <b>O</b> on the top face of every ring piece before lifting it out.</li>
 {f'''<li><b>Letter the strips as they come off the guide.</b> Each strip lies in the channel with its foot at the left (the slot end).
 {"".join(f"<li>{E(g)}: write <b>{E(g.split()[-1])}</b> and its number on the <b>top</b> face near the left end, then <b>F</b> at that end.</li>" for g in keep).join(("<ul>", "</ul>")) if keep else ""}
 {"".join(f"<li>{E(g)}: <b>roll it over</b> (keep the left end on the left), then write <b>{E(g.split()[-1])}</b> and its number on the new top face near the left end, and <b>F</b> at that end.</li>" for g in roll).join(("<ul>", "</ul>")) if roll else ""}
@@ -721,7 +750,7 @@ td,th{border:1px solid #ccc;padding:3px 5px;text-align:left;vertical-align:top}t
 tr{page-break-inside:avoid}.s{color:#666;font-size:8pt}.warn{background:#fff3cd;padding:6px 8px;border-radius:4px}
 .check{background:#e7f5ff;padding:5px 8px;border-radius:4px}.kpi{font-size:20pt;font-weight:700;color:#e8590c}
 table.tight td,table.tight th{padding:0 4px;font-size:7.4pt;line-height:1.25}.tag{background:#1f2937;color:#fff;border-radius:3px;padding:0 4px;font-size:8.5pt}.legend{background:#f8f9fa;border:1px solid #ddd;border-radius:4px;padding:4px 8px}.cols{display:flex;gap:16px}.cols>div{flex:1}.pb{page-break-before:always}.figrow{display:flex;gap:10px;align-items:flex-start;page-break-inside:avoid}
-.stepbox{page-break-before:always}code{font-size:8.5pt;background:#f3f3f3;padding:0 3px;border-radius:2px}
+.stepbox{page-break-before:always}.need{background:#eef6ee;border:1px solid #9c9;border-radius:4px;padding:5px 8px;margin:4px 0}.stop{background:#fdecea;border:1px solid #e3a39d;border-radius:4px;padding:5px 8px}.rules li{margin-bottom:4px}code{font-size:8.5pt;background:#f3f3f3;padding:0 3px;border-radius:2px}
 ul,ol{margin:4px 0 6px 18px;padding:0}li{margin-bottom:3px}.toc li{margin:1px 0}"""
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>Tower assembly guide</title><style>{css}</style></head><body>
 <h1>{E(fam)}</h1><p style="font-size:13pt;margin:0">Assembly guide</p>
@@ -748,6 +777,17 @@ pole, built only from supplied 3 × 3 mm sticks (full size; only the joints are 
 {glue_legend(used, scarf)}</li>
 <li>⚖ boxes are weigh-ins. Weigh the tower after each step once its glue is dry. If you are over, you are using too much glue.</li>
 <li>☐ boxes are checks to tick before you move on. ⏸ boxes mean wait for the glue.</li></ul>
+<div class="stop"><p><b>Read this first: the 10 rules that stop most mistakes</b></p><ol class="rules">
+<li><b>Print the fit-test coupon FT first</b> and check a stick slides into the 3.3 mm slot before printing anything else.</li>
+<li><b>Weigh your sticks before cutting</b> (go/no-go in Step 0). Too heavy means the tower will be over {spec.max_mass:.0f} g.</li>
+<li><b>Never measure, never thin a stick.</b> The jigs set every length and angle. Only the ends are cut or sanded.</li>
+<li><b>Saw on the left face of every saw slot</b>, and never turn a stick over between cuts.</li>
+<li><b>Pencil the face that goes outwards</b> as you cut: A or B on strips, O on ring pieces.</li>
+<li><b>Lengths must be within ±{tolerances.CUT_TOL:.1f} mm.</b> Check every strip in MG1; recut anything outside the ticks.</li>
+<li><b>Damp the strips</b> before they go into the jig, and let them dry there for 2 hours so they keep their twist.</li>
+<li><b>Dry fit before every glue joint</b>, and <b>peg every crossing</b> while it grabs.</li>
+<li><b>Thin glue, two coats</b> for balsa cement; wipe off anything that squeezes out. Weigh after every step.</li>
+<li><b>Wait the times given.</b> 1 hour between steps, 24 hours before the jig comes out. If anything doesn't fit, stop and check Troubleshooting.</li></ol></div>
 <p><b>Words used in this guide</b></p>
 <table class="tight">{''.join(f'<tr><td style="width:22%"><b>{E(a)}</b></td><td>{E(b)}</td></tr>' for a, b in GLOSSARY if shingle or a != "Shingled lap")}</table>
 
@@ -881,22 +921,24 @@ spacers disc-down, the mast lying flat.</p>
 <table><tr><th>Part</th><th>Sits at</th></tr><tr><td>{_lab('base_plate')}base_plate.stl boss</td><td>up to {boss:.1f} mm</td></tr>{stack_rows}</table>
 
 <h2 class="pb">9. Cutting the pieces</h2>
-<p>Every piece is a full 3 × 3 stick cut to length; only the ends are shaped. The cutting guide {_lab('cutting_guide_1')}has one
-channel per piece, numbered and labelled with its length. Each channel is open at the left, has a saw slot near the left end and a
-<b>stop</b> exactly one piece-length to the right of the slot. You never measure.</p><ol>
+<p>Every piece is a full 3 × 3 stick cut to length; only the ends are shaped. {"".join(_lab(j.name) for j in jig_parts if j.name.startswith("cutting_guide"))}are the cutting guides
+(CG1 for the strips{", CG2 for the ring pieces" if "cutting_guide_2" in LABELS else ""}). Each channel is numbered and engraved with its piece name, length and how many to cut.
+The stick goes in from the left, under a tall <b>saw guide</b> that keeps the saw upright and holds the stick down; a <b>stop</b> sits
+exactly one piece-length past the saw slot. You never measure.</p>
+<div class="figrow"><div>{svg_saw_side()}</div><div><p><b>Always saw on the left face of the slot</b> (the waste side, away from the piece).
+The stops allow for a saw cut about {cad.KERF:.1f} mm wide on that side, so the piece comes out at its exact length. Sawing in the
+middle or on the right of the slot makes the piece up to 0.4 mm short.</p></div></div><ol>
 <li>Tape the guide to the bench. Pick the channel for the piece (table below).</li>
-<li><b>Square up the start.</b> Lay the stick in the channel from the left so its end pokes about 5 mm past the slot, and saw
-through the slot. Throw the offcut away.</li>
-<li><b>Cut a piece.</b> Slide the stick to the right until its fresh end touches the stop. Hold it there with a finger well away
-from the slot, and saw gently through the slot. The piece between the slot and the stop is exactly the right length, and the
-end left on the stick is already cut for the next piece.</li>
-<li>Repeat step 3 along the stick. <b>Don't turn the stick over between cuts</b>, so the angled strip ends stay parallel.</li>
-<li><b>Channels with two angled slots</b> (pieces whose two ends are cut at different angles, like the ring pieces): push the
-stick against the stop at the left end of the channel and saw at <b>both</b> slots, keeping the saw against the <b>waste side</b> of each
-slot (the side away from the piece): the slots are spaced so the piece comes out exactly to length after the saw cut. Before you take the
-piece out, pencil an <b>arrow on its top face pointing to the right-hand end</b>. In the ring, that face goes outwards with the arrow
-pointing right; the two ends are cut at different angles, so this is the only way round it fits.</li>
-<li>Write the piece ID on it in pencil and drop it in its cup. Strips also get their letter and F (Step 0).</li></ol>
+<li><b>Square up the start.</b> Push the stick in from the left until its end pokes about 5 mm past the slot, and saw through
+the slot. Throw the offcut away.</li>
+<li><b>Cut a piece.</b> Slide the stick to the right until its fresh end touches the stop. Hold it down just left of the saw guide
+(never between the slot and the stop) and saw gently, against the left face of the slot. The piece between the slot and the stop is
+the right length, and the end left on the stick is already cut for the next piece.</li>
+<li>Repeat step 3 along the stick. <b>Never turn the stick over between cuts</b>: the angled ends must stay parallel.</li>
+<li><b>Before you lift each piece out, pencil on its top face</b>: the strip's ID (see Step 0 for the A/B letter) or, for a ring piece,
+an <b>O</b>. That face goes outwards on the tower.</li>
+{"<li><b>Channels with two angled slots</b>: push the stick against the stop at the left end of the channel and saw at <b>both</b> slots, each on its waste side (away from the piece).</li>" if any(c["mode"] == "two" for c in cad.cut_channels(st)) else ""}
+<li>Drop each piece in its cup and tick the count.</li></ol>
 <table><tr><th>Piece</th><th>Qty</th><th>Length</th><th>Tolerance (mm)</th><th>End 1</th><th>End 2</th><th>Cut with</th><th>Sand ends with</th></tr>{cut_rows}</table>
 <h3>Tolerances: how accurate each cut has to be</h3>
 <p>Every size in this guide has a tolerance: how far off it can be and still fit. The jigs are made with these allowances
@@ -915,6 +957,10 @@ The cutting guide gets the angle close. The sanding jig {"".join(_lab(j.name) fo
 
 <h2 class="pb">10. Build steps</h2>
 <p>Before Step 1: all pieces cut and labelled, jig printed and test-fitted, glues and tools laid out, a clear flat bench.</p>
+<p><b>The whole build at a glance</b> (tick each step as you finish it):</p>
+<table class="tight"><tr><th>☐</th><th>Step</th><th>What</th><th>Pieces</th><th>Glue joints</th><th>Time</th><th>Then wait</th></tr>
+<tr><td>☐</td><td>0</td><td>Preparing the parts</td><td>{res.n_parts}</td><td>0</td><td>2–3 h</td><td>—</td></tr>
+{"".join(f"<tr><td>☐</td><td>{n}</td><td>{E(t)}</td><td>{p or '—'}</td><td>{j or '—'}</td><td>{m} min</td><td>{E(w)}</td></tr>" for n, t, p, j, m, w in glance)}</table>
 <p><b>A sensible plan</b> (each session 1–2 hours):</p>
 <table class="tight"><tr><th>Session</th><th>Do</th><th>Then wait</th></tr>
 <tr><td>1</td><td>Step 0: test fit, cut, letter, mark and sand every piece</td><td>—</td></tr>

@@ -119,8 +119,8 @@ def plan_steps(st: Structure, jig_parts) -> list[Step]:
             "left, so every right end has a piece to sit on. Double-glue the strip patch under each left end and the "
             "two faces where the pieces cross." if shingle
             else "Neighbouring pieces meet end to end on a B strip, each covering half its width. Every piece has the "
-                 "arrow you drew when cutting it: <b>arrow on the outside, pointing right</b> (its two ends are cut at "
-                 "different angles, so a piece the wrong way round won't sit flush).")
+                 "<b>O</b> you pencilled on it when cutting: <b>O face outwards</b>. Its ends are cut at a slant to "
+                 "match the leaning strips, so a piece turned inside out won't sit flush (end for end doesn't matter).")
     close = (" Leave the <b>first</b> piece's right end unglued and lifted slightly; when you get back round, slide the "
              "last piece's left end underneath it, then glue both." if shingle else "")
     if st.family.startswith("diagrid"):

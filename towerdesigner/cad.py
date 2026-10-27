@@ -709,12 +709,45 @@ def level_angle(st: Structure, pi: int) -> float:
     return math.degrees(math.atan2(y[2], u[2]))
 
 
+KERF = 0.5   # mm, razor-saw cut width; the cutting-guide stops allow for it (saw on the waste side of the slot)
+
+
+def ring_cut_angles(st: Structure, pi: int) -> tuple[float, float] | None:
+    """Saw angles (deg) for a half-lap ring piece lying outer (O) face up in the cutting guide, end 1 on the left:
+    each end is cut along the strip it sits on, so the angle is that strip's lean seen on the piece's outer face."""
+    part = st.parts[pi]
+    m = st.members[part.members[0]]
+    ends = []
+    for node in (m.i, m.j):
+        host = outer_strip_at(st, node, None)
+        if host is None or st.parts[host].kind not in ("diag", "leg"):
+            return None
+        h0, h1, _ = strip_line(st, host)
+        hu = _unit(h1 - h0)
+        z = st.nodes[node][2]
+        ends.append((h0 + (z - h0[2]) / hu[2] * hu, hu))
+    c0, c1 = ends[0][0], ends[1][0]
+    x = _unit(c1 - c0)
+    zf = surface_normal(st, (c0 + c1) / 2)
+    zf = _unit(zf - (zf @ x) * x)
+    y = np.cross(zf, x)
+    out = []
+    for _, hu in ends:
+        d = np.array([hu @ x, hu @ y])
+        if d[1] < 0:
+            d = -d
+        out.append(math.degrees(math.atan2(-d[0], d[1])))
+    return out[0], out[1]
+
+
 def cut_channels(st: Structure) -> list[dict]:
-    """What the cutting guides hold, longest first, eight channels per guide.
-    Level-cut strips: both ends parallel, cut against a stop (no waste). Scarfed ring pieces: cut square
-    (the scarf is sanded on afterwards). Anything else: its two end angles, between two saw slots."""
+    """What the cutting guides hold: guide 1 = strips, guide 2 = everything else, longest first.
+    Every piece whose two ends are (near enough) parallel is cut against a stop: no measuring, no waste.
+    Level-cut strips are left a little long for the sanding jig; scarfed or shingled ring pieces are cut square;
+    anything with truly different end angles is cut between two slots."""
     groups: dict[tuple, list[int]] = {}
     level = set(level_parts(st))
+    ang = {}
     for pi, p in enumerate(st.parts):
         if p.laser or p.sec is None or p.kind == "corner":
             continue
@@ -725,21 +758,33 @@ def cut_channels(st: Structure) -> list[dict]:
         elif "scarf" in es or "shingle" in es:
             key = (p.stock, L, "square", 0.0)
         else:
-            key = (p.stock, L, round(p.end_angles[0]), round(p.end_angles[1]))
+            ra = ring_cut_angles(st, pi) if p.kind in ("ring", "base", "cap") and "lap" in es else None
+            if ra is not None and abs(ra[0] - ra[1]) <= 2.0:
+                ang[pi] = (ra[0] + ra[1]) / 2       # ends parallel within 1 deg: cut against a stop
+                key = (p.stock, L, "parallel", round(ang[pi], 1))
+            else:
+                key = (p.stock, L, round(p.end_angles[0]), round(p.end_angles[1]))
         groups.setdefault(key, []).append(pi)
     out = []
-    for n, (key, pis) in enumerate(sorted(groups.items(), key=lambda kv: (-kv[0][1], str(kv[0]))), start=1):
+    count = {1: 0, 2: 0}
+    for key, pis in sorted(groups.items(), key=lambda kv: (-kv[0][1], str(kv[0]))):
         pis = sorted(pis, key=lambda i: (st.parts[i].group or "", i))
-        beta = level_angle(st, pis[0]) if key[2] == "parallel" else 0.0
-        names = sorted({st.parts[i].group or st.parts[i].name for i in pis})
-        short = "STRIPS" if all(g.startswith("Strip") for g in names) else "/".join(names).upper()
-        L = float(np.mean([st.parts[i].length for i in pis]))
+        strips = all(i in level for i in pis)
+        g = 1 if strips else 2
+        count[g] += 1
         if key[2] == "parallel":
+            beta = level_angle(st, pis[0]) if strips else float(np.mean([ang[i] for i in pis]))
+        else:
+            beta = 0.0
+        names = sorted({st.parts[i].group or st.parts[i].name for i in pis})
+        short = "STRIPS" if all(nm.startswith("Strip") for nm in names) else "/".join(names).upper()
+        L = float(np.mean([st.parts[i].length for i in pis]))
+        if strips:
             from .tolerances import SAND_ALLOW
             L += 2 * SAND_ALLOW          # left on for the sanding jig to clean up both ends
-        out.append(dict(key=key, parts=pis, n=n, guide=(n - 1) // 8 + 1, ch=(n - 1) % 8 + 1,
+        out.append(dict(key=key, parts=pis, n=len(out) + 1, guide=g, ch=count[g],
                         L=L, beta=beta, mode=key[2]
-                        if key[2] in ("parallel", "square") else "two", name=short,
+                        if key[2] in ("parallel", "square") else "two", name=short, strips=strips,
                         a0=key[2] if key[2] not in ("parallel", "square") else 90,
                         a1=key[3] if key[2] not in ("parallel", "square") else 90))
     return out
@@ -764,52 +809,60 @@ def cutting_guides(st: Structure) -> list[JigPart]:
 
 
 def _guide_plate(chans: list[dict], idx: int) -> JigPart:
-    wall, base, margin, top = 4.5, 3.0, 12.0, 8.0
-    w, xs = SLOT, 10.0                      # channel width, saw slot position
+    """Cutting guide: one channel per piece, each with a tall saw guide over its slot (keeps the saw square and
+    holds the stick down) and a stop exactly one piece-length away; channel number, name, length and count are
+    engraved beside each channel."""
+    wall, base, margin, top, tower_h = 4.5, 3.0, 12.0, 8.0, 18.0
+    w, xs = SLOT, 14.0                      # channel width, saw slot position
     ends = []
     for c in chans:
         b = math.radians(c["beta"])
         if c["mode"] == "two":
-            ends.append(5 + 3 + c["L"] + 8)
+            ends.append(5 + 3 + c["L"] + 12)
         else:
-            ends.append(xs + 0.4 / math.cos(b) + c["L"] + abs(math.tan(b)) * w / 2 + 7)
-    length = max(ends)
+            ends.append(xs + c["L"] + abs(math.tan(b)) * w / 2 + 9)
+    length = max(max(ends), 70.0)
     width = margin + sum(w + wall for _ in chans)
     body = cq.Workplane().box(length, width, top, centered=(False, False, False))
+    # saw-guide tower across every channel at the slot
+    body = body.union(cq.Workplane().box(10, width, tower_h, centered=(False, False, False)).translate((xs - 5, 0, 0)))
     y = margin
     notes = []
     for c in chans:
         yc = y + w / 2
         b = math.radians(c["beta"])
         if c["mode"] == "two":
-            # stop at x = 5, then two slots at the end angles (pieces whose ends aren't parallel)
-            body = body.cut(cq.Workplane().box(length - 10, w, 10, centered=(False, False, False))
+            body = body.cut(cq.Workplane().box(length - 10, w, w + 0.4, centered=(False, False, False))
                             .translate((5, y, base)))
             x1 = 5 + 1.5 + abs(math.tan(math.radians(90 - c["a0"]))) * w / 2
-            # sawing against the waste side of each 0.8 mm slot with a ~0.5 mm kerf leaves the piece
-            # (slot spacing − 0.2) long, so space them L + 0.2 apart
-            for xpos, ang in ((x1, c["a0"]), (x1 + c["L"] + 0.2, c["a1"])):
-                slot = (cq.Workplane().box(0.8, w + 2 * wall + 2, 10).translate((0, 0, 5))
+            for xpos, ang in ((x1, c["a0"]), (x1 + c["L"] + 2 * KERF - 0.8, c["a1"])):
+                slot = (cq.Workplane().box(0.8, w + 2 * wall + 2, 30).translate((0, 0, 15))
                         .rotate((0, 0, 0), (0, 0, 1), 90 - ang).translate((xpos, yc, base)))
                 body = body.cut(slot)
-            how = f"end against the stop, saw both slots"
+            how = "end against the stop, saw both slots on their waste side"
         else:
-            # open on the left, one saw slot, and a stop exactly one piece-length away, parallel to the slot
-            xstop = xs + 0.4 / math.cos(b) + c["L"]
+            # stick enters from the left under the saw guide; the stop sits one piece-length past the slot,
+            # allowing for the saw cut when you saw against the slot's left (waste) side
+            xstop = xs + c["L"] + (KERF - 0.4) / math.cos(b)
             t = math.tan(b)
             xl = lambda yy: xstop - t * (yy - yc)
             chan = (cq.Workplane().polyline([(-1, y), (xl(y), y), (xl(y + w), y + w), (-1, y + w)]).close()
-                    .extrude(10).translate((0, 0, base)))
+                    .extrude(w + 0.4).translate((0, 0, base)))
             body = body.cut(chan)
-            slot = (cq.Workplane().box(0.8, w + 2 * wall + 2, 10).translate((0, 0, 5))
+            # open top beyond the saw guide so you can see and lift the piece
+            body = body.cut(cq.Workplane().polyline([(xs + 5, y), (xl(y), y), (xl(y + w), y + w), (xs + 5, y + w)])
+                            .close().extrude(30).translate((0, 0, base)))
+            slot = (cq.Workplane().box(0.8, w + 2 * wall + 2, 30).translate((0, 0, 15))
                     .rotate((0, 0, 0), (0, 0, 1), c["beta"]).translate((xs, yc, base)))
             body = body.cut(slot)
-            how = "push the stick to the stop, saw at the slot"
-        body = _text_cut(body, f"{c['ch']}  {c['name']}  {c['L']:.1f}", 3.0, xs + 4, y - wall / 2 + 0.1, top,
-                         halign="left")
+            how = "push the stick to the stop, saw at the slot on its left (waste) side"
+        body = _text_cut(body, f"{c['ch']} {c['name']} {c['L']:.1f} x{len(c['parts'])}", 2.8, xs + 7,
+                         y - wall / 2 + 0.1, top, halign="left")
         notes.append(f"channel {c['ch']}: {c['name'].lower()} {c['L']:.1f} mm ×{len(c['parts'])} ({how})")
         y += w + wall
-    body = _text_cut(body, f"CG{idx}", 5.5, xs + 4, 4.5, top, halign="left")
+    body = _text_cut(body, f"CG{idx}", 5.5, xs + 7, 4.5, top, halign="left")
+    msg = "SAW ON THE LEFT FACE OF THE SLOT" if width > 45 else "SAW LEFT FACE"
+    body = _text_cut(body, msg, 2.2, xs - 3.2, width / 2, tower_h, plane=((0, 1, 0), (0, 0, 1)))
     return JigPart(f"cutting_guide_{idx}", body.val(), 1, "; ".join(notes), label=f"CG{idx}", engraved=True)
 
 
