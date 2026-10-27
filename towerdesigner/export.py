@@ -107,7 +107,10 @@ def export_all(family: str, params: dict, spec: Spec, outdir: str, progress=None
         files["steps/*.step"] = "3D model of every build step (blue jig, tan built, orange new)"
         gh = os.path.join(outdir, "assembly_guide.html")
         with open(gh, "w") as f:
-            f.write(guide.make_guide_html(st, res, spec, jig_parts, imgs, steps))
+            say("Checking that every part fits")
+            from . import tolerances
+            fit = tolerances.fit_report(st, jig_parts)
+            f.write(guide.make_guide_html(st, res, spec, jig_parts, imgs, steps, fit=fit))
         if guide.write_pdf(gh, os.path.join(outdir, "Assembly guide.pdf")):
             files["Assembly guide.pdf"] = "how to build it: grain, glue per joint, cuts, jig, build order"
         files["assembly_guide.html"] = "the same guide as a web page"

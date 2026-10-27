@@ -212,17 +212,20 @@ def stick_plan(st: Structure) -> dict[str, list[list[tuple[str, float]]]]:
     for pi, p in enumerate(st.parts):
         if p.laser or p.sec is None:
             continue
-        by.setdefault(p.stock, []).append((ids[pi], p.length))
+        # a piece cut between two angled slots wastes a little more than one saw cut
+        two_slot = any(e in ("lap", "mitre") for e in p.info.get("end_style", []))
+        by.setdefault(p.stock, []).append((ids[pi], p.length, 3.5 if two_slot else 2.0))
     out = {}
     for stock, items in by.items():
         L = STOCK_BY_ID[stock].length
         bins: list[list] = []
-        for lab, ln in sorted(items, key=lambda x: -x[1]):
-            for b in bins:
-                if 5 + sum(x[1] + 2 for x in b) + ln <= L:     # 5 mm to square the start, 2 mm per cut
-                    b.append((lab, ln))
+        packed: list[list] = []
+        for lab, ln, waste in sorted(items, key=lambda x: -x[1]):
+            for b in packed:
+                if 5 + sum(x[1] + x[2] for x in b) + ln + waste <= L:     # 5 mm to square the start
+                    b.append((lab, ln, waste))
                     break
             else:
-                bins.append([(lab, ln)])
-        out[stock] = bins
+                packed.append([(lab, ln, waste)])
+        out[stock] = [[(lab, ln) for lab, ln, _ in b] for b in packed]
     return out

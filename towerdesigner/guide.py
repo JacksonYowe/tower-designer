@@ -122,6 +122,18 @@ def svg_scarf() -> str:
 </svg>"""
 
 
+def svg_shingle() -> str:
+    return """<svg viewBox="0 0 340 150" width="300" height="132" xmlns="http://www.w3.org/2000/svg">
+<rect x="60" y="5" width="20" height="140" fill="#9e7347" stroke="#5a3a1a"/><text x="84" y="140" font-size="11">B strip</text>
+<rect x="250" y="5" width="20" height="140" fill="#9e7347" stroke="#5a3a1a"/><text x="200" y="140" font-size="11">next B strip</text>
+<g transform="rotate(-6 160 75)"><rect x="40" y="62" width="250" height="20" fill="#f5d55a" stroke="#8a6d10"/></g>
+<g transform="rotate(7 300 70)"><rect x="232" y="54" width="110" height="20" fill="#e8c23a" stroke="#8a6d10" opacity="0.95"/></g>
+<circle cx="70" cy="78" r="5" fill="#d91a1a"/><rect x="255" y="57" width="9" height="9" fill="#d91a1a"/>
+<text x="5" y="20" font-size="11">left end: flat on the strip (dot)</text>
+<text x="150" y="110" font-size="11">right end: on top of the next piece (square)</text>
+</svg>"""
+
+
 def svg_crossing() -> str:
     return """<svg viewBox="0 0 340 140" width="300" height="124" xmlns="http://www.w3.org/2000/svg">
 <g transform="rotate(-20 150 70)"><rect x="139" y="0" width="22" height="140" fill="#e9c48d" stroke="#7a4f22"/></g>
@@ -156,9 +168,7 @@ def physical_host(st: Structure, j: int) -> int:
     jt = st.joints[j]
     if jt.kind == "lap" or jt.kind == "scarf":
         return jt.parts[1]
-    at = [p for k in range(len(st.joints)) if st.joints[k].kind == "lap" and st.joints[k].node == jt.node
-          for p in st.joints[k].parts[:2]]
-    return max(at, key=lambda p: st.parts[p].offset) if at else jt.parts[1]
+    return cad.outer_strip_at(st, jt.node, jt.parts[1])
 
 
 
@@ -222,47 +232,47 @@ def svg_base_section() -> str:
 
 
 def ring_map(st: Structure, res: Result, parts: list[int], ids: list[str]) -> tuple[str, str]:
-    """Top-down map of one ring with a glue-coloured dot at every joint, plus a joint-by-joint table."""
+    """Top-down map of one ring with a glue-coloured mark at every joint, plus a joint-by-joint table.
+    Dots: a ring end glued to its strip. Squares: ring piece glued to the next ring piece (lap or scarf)."""
     pset = set(parts)
-    # joints onto the strips (two per piece) and scarf joints between neighbouring pieces (one per crossing)
-    ring_joints = [(j, jt) for j, jt in enumerate(st.joints) if jt.parts[0] in pset and jt.kind != "scarf"]
-    scarf_joints = [(j, jt) for j, jt in enumerate(st.joints) if jt.kind == "scarf" and jt.parts[0] in pset]
-    if not ring_joints:
+    piece_joints = [(j, jt) for j, jt in enumerate(st.joints)
+                    if jt.kind in ("lap", "scarf") and jt.parts[0] in pset and jt.parts[1] in pset]
+    strip_joints = [(j, jt) for j, jt in enumerate(st.joints)
+                    if jt.parts[0] in pset and jt.parts[1] not in pset]
+    if not strip_joints:
         return "", ""
-    xy = {jt.node: st.nodes[jt.node][:2] for _, jt in ring_joints}
-    R = max(float(np.hypot(*v)) for v in xy.values())
+    node_xy = {}
+    for i in parts:
+        m = st.members[st.parts[i].members[0]]
+        node_xy[m.i], node_xy[m.j] = st.nodes[m.i][:2], st.nodes[m.j][:2]
+    R = max(float(np.hypot(*v)) for v in node_xy.values())
     S, cx, cy = 150 / R, 200, 190
-    P = lambda v: (cx + v[0] * S, cy - v[1] * S)     # looking down from above, x to the right
+    P = lambda v: np.array((cx + v[0] * S, cy - v[1] * S))     # looking down from above, x to the right
     lines, dots, labels = [], [], []
     for i in parts:
-        js = [(j, jt) for j, jt in ring_joints if jt.parts[0] == i]
-        if len(js) != 2:
-            continue
-        (ja, a), (jb, b) = js
-        pa, pb = np.array(P(xy[a.node])), np.array(P(xy[b.node]))
+        m = st.members[st.parts[i].members[0]]
+        pa, pb = P(node_xy[m.i]), P(node_xy[m.j])
         lines.append(f'<line x1="{pa[0]:.1f}" y1="{pa[1]:.1f}" x2="{pb[0]:.1f}" y2="{pb[1]:.1f}" stroke="#d9b13b" stroke-width="6"/>')
         mid = (pa + pb) / 2
         out = (mid - [cx, cy]) / (np.linalg.norm(mid - [cx, cy]) or 1)
         lp = mid + out * 13
         labels.append(f'<text x="{lp[0]:.1f}" y="{lp[1] + 3:.1f}" font-size="7.5" text-anchor="middle">{E(ids[i])}</text>')
-        for j, jt, pend in ((ja, a, pa), (jb, b, pb)):
+        for j, jt in strip_joints:
+            if jt.parts[0] != i:
+                continue
+            pend = P(st.nodes[jt.node][:2])
             d = pend + (mid - pend) / (np.linalg.norm(mid - pend) or 1) * 5    # dot just inside this piece's end
             dots.append(f'<circle cx="{d[0]:.1f}" cy="{d[1]:.1f}" r="3.6" fill="{GLUE_COLOUR[res.joint_glue[j]]}" '
                         f'stroke="#fff" stroke-width="0.8"/>')
-    for j, jt in scarf_joints:     # scarf glue: a square marker just outside the ring at that crossing
-        p = np.array(P(xy[jt.node])) if jt.node in xy else None
-        if p is None:
-            continue
+    for j, jt in piece_joints:     # piece-to-piece glue: a square just outside the ring at that crossing
+        p = P(st.nodes[jt.node][:2])
         o = p + (p - [cx, cy]) / (np.linalg.norm(p - [cx, cy]) or 1) * 6
         dots.append(f'<rect x="{o[0] - 3:.1f}" y="{o[1] - 3:.1f}" width="6" height="6" '
                     f'fill="{GLUE_COLOUR[res.joint_glue[j]]}" stroke="#fff" stroke-width="0.8"/>')
-    # strip labels at the nodes (first few and S1 highlighted)
-    host_at = {}
-    for j, jt in ring_joints:
-        host_at[jt.node] = ids[physical_host(st, j)]
-    first = ids[physical_host(st, ring_joints[0][0])][:1] + "1"
+    host_at = {jt.node: ids[physical_host(st, j)] for j, jt in strip_joints}
+    first = next(iter(host_at.values()))[:1] + "1"
     for node, lab in host_at.items():
-        p = np.array(P(xy[node]))
+        p = P(st.nodes[node][:2])
         inn = p + ([cx, cy] - p) / (np.linalg.norm([cx, cy] - p) or 1) * 14
         weight = "bold" if lab == first else "normal"
         col = "#c92a2a" if lab == first else "#666"
@@ -273,28 +283,31 @@ def ring_map(st: Structure, res: Result, parts: list[int], ids: list[str]) -> tu
            f'<text x="{cx}" y="{cy + 3}" font-size="8" text-anchor="middle" fill="#889">pole</text>'
            + "".join(lines) + "".join(dots) + "".join(labels) +
            f'<text x="8" y="372" font-size="8" fill="#555">Seen from above. The strip each end is glued to is named inside '
-           f'the ring; {first} (red) is at the base-plate mark. Dots: glue on the strip at each end'
-           + ('; squares: glue on the scarf overlap.' if scarf_joints else '.') + '</text></svg>')
-    # table: one row per piece, glue at each end
+           f'the ring; {first} (red) is at the base-plate mark. Dots: ring end glued to its strip'
+           + ('; squares: glued to the next ring piece.' if piece_joints else '.') + '</text></svg>')
     rows = ""
+    shingle = any(jt.kind == "lap" for _, jt in piece_joints)
     for i in sorted(parts, key=lambda i: _natural(ids[i])):
-        js = [(j, jt) for j, jt in ring_joints if jt.parts[0] == i][:2]
         cells = "".join(
-            f"<td>over <b>{E(ids[physical_host(st, j)])}</b>: <b style='color:{GLUE_COLOUR[res.joint_glue[j]]}'>"
-            f"● {E(GLUES[res.joint_glue[j]].name)}</b></td>" for j, jt in js)
-        if scarf_joints:
-            sc = [(j, jt) for j, jt in scarf_joints if i in jt.parts[:2]]
-            nxt = [(j, jt) for j, jt in sc if jt.parts[0] == i or jt.parts[1] == i]
+            f"<td>on <b>{E(ids[physical_host(st, j)])}</b>: <b style='color:{GLUE_COLOUR[res.joint_glue[j]]}'>"
+            f"● {E(GLUES[res.joint_glue[j]].name)}</b></td>" for j, jt in strip_joints if jt.parts[0] == i)
+        if shingle:
+            cells += "".join(
+                f"<td>over <b>{E(ids[jt.parts[1]])}</b>: <b style='color:{GLUE_COLOUR[res.joint_glue[j]]}'>"
+                f"■ {E(GLUES[res.joint_glue[j]].name)}</b></td>" for j, jt in piece_joints if jt.parts[0] == i)
+        elif piece_joints:
             cells += "<td>" + ", ".join(
                 f"with <b>{E(ids[jt.parts[1] if jt.parts[0] == i else jt.parts[0]])}</b>: "
                 f"<b style='color:{GLUE_COLOUR[res.joint_glue[j]]}'>■ {E(GLUES[res.joint_glue[j]].name)}</b>"
-                for j, jt in nxt) + "</td>"
+                for j, jt in piece_joints if i in jt.parts[:2]) + "</td>"
         rows += f"<tr><td><b>{E(ids[i])}</b></td>{cells}</tr>"
-    cnt = Counter(res.joint_glue[j] for j, _ in ring_joints + scarf_joints)
+    cnt = Counter(res.joint_glue[j] for j, _ in strip_joints + piece_joints)
     summary = ", ".join(f"<b style='color:{GLUE_COLOUR[g]}'>{n} × {E(GLUES[g].name)}</b>" for g, n in cnt.most_common())
+    head = ("<th>Piece</th><th>Left end (flat on the strip)</th><th>Right end (laps over the next piece)</th>" if shingle
+            else "<th>Piece</th><th>End 1 (on strip)</th><th>End 2 (on strip)</th>"
+            + ("<th>Scarf overlaps</th>" if piece_joints else ""))
     table = (f"<p><b>Every joint in this ring</b> ({summary}):</p>"
-             f"<table class='tight'><tr><th>Piece</th><th>End 1 (on strip)</th><th>End 2 (on strip)</th>"
-             + ("<th>Scarf overlaps</th>" if scarf_joints else "") + f"</tr>{rows}</table>")
+             f"<table class='tight'><tr>{head}</tr>{rows}</table>")
     return svg, table
 
 
@@ -330,8 +343,10 @@ def _sand_tag(a0, s0, a1, s1) -> str:
         off = int(round(90 - a))
         if s == "scarf":
             t = LABELS.get("scarf_sanding_guide", "SG")
-        elif s in ("level", "lap", "mitre") and off >= 1:
+        elif s == "level" and off >= 1:
             t = LABELS.get(f"end_sanding_jig_{off}deg", "")
+        elif s in ("lap", "mitre") and off >= 1:
+            t = LABELS.get("end_sanding_jig_rings", "") or LABELS.get(f"end_sanding_jig_{off}deg", "")
         else:
             t = ""
         if t and t not in tags:
@@ -343,6 +358,7 @@ def _end_txt(a, s):
     off = 90 - a
     return {"level": f"level cut, ~{off:.0f}° off square", "lap": f"lap end, trimmed {off:.0f}° off square",
             "scarf": "scarf: 1-in-3 slope through the thickness, ~9 mm",
+            "shingle": "square cut",
             "mitre": f"mitre, {off:.0f}° off square"}.get(s, "square")
 
 
@@ -356,7 +372,8 @@ GLOSSARY = [
     ("Level", "One of the heights where the strips cross (1 = lowest). Rings sit at some levels."),
     ("Tick", "A pencil line on a strip, made with the marking gauge MG1, showing where a crossing goes."),
     ("Ring", "A hoop of short pieces glued round the outside at one level."),
-    ("Scarf", "A long sloping end (1 in 3, about 9 mm) so two ring pieces overlap and glue on a big face."),
+    ("Shingled lap", "How the ring pieces join: each piece's left end lies on a strip and its right end lies on top "
+                     "of the next piece, glued face to face where they cross, like roof shingles."),
     ("Level cut", "An angled end cut so a leaning strip stands flat on a level surface."),
     ("Lap joint", "Two pieces glued face to face where one overlaps the other."),
     ("Pocket", "A shallow V-shaped hole in the base plate where two strip feet stand."),
@@ -408,7 +425,7 @@ def print_plan(jig_parts, bed: float = 256.0) -> list[tuple[str, list[str], floa
 
 
 def make_guide_html(st: Structure, res: Result, spec: Spec, jig_parts, images: dict,
-                    steps: list[Step] | None = None) -> str:
+                    steps: list[Step] | None = None, fit: list | None = None) -> str:
     from .stepmodels import plan_steps
     steps = steps or plan_steps(st, jig_parts)
     LABELS.clear()
@@ -418,6 +435,11 @@ def make_guide_html(st: Structure, res: Result, spec: Spec, jig_parts, images: d
     for i, p in enumerate(st.parts):
         by_grp[p.group].append(i)
     groups, _, guide_keys = _cut_groups(st)
+    from . import tolerances
+    tol_rows = "".join(f"<tr><td><b>{E(r['item'])}</b></td><td>{E(r['nominal'])}</td><td><b>{E(r['tol'])}</b></td>"
+                       f"<td>{E(r['jig'])}</td><td>{E(r['check'])}</td></tr>"
+                       for r in tolerances.rows(st, spec, jig_parts))
+    fit_rows = "".join(f"<tr><td>{'✔' if ok else '✘'} {E(k)}</td><td>{E(v)}</td></tr>" for k, v, ok in (fit or []))
     plan = stick_plan(st)
     n_sticks = sum(len(b) for b in plan.values())
     stick_len = STOCK_BY_ID["teacher-3x3"].length
@@ -436,7 +458,9 @@ def make_guide_html(st: Structure, res: Result, spec: Spec, jig_parts, images: d
         b = st.parts[jt.parts[1]].group or st.parts[jt.parts[1]].name
         if b.startswith("Strip"):
             b = "the strips (lapped across the outside)"
-        place = f"{a} → {b}" if jt.kind != "lap" else "Crossings (B strip over A strip)"
+        ring_lap = jt.kind == "lap" and st.parts[jt.parts[0]].kind in ("ring", "base", "cap")
+        place = (f"{a}: piece over the next piece" if ring_lap else
+                 f"{a} → {b}" if jt.kind != "lap" else "Crossings (B strip over A strip)")
         g = res.joint_glue[j]
         loc[(place, jt.kind)][g] += 1
         wet[(place, g)].append(res.mass.per_joint_wet[j])
@@ -468,14 +492,16 @@ def make_guide_html(st: Structure, res: Result, spec: Spec, jig_parts, images: d
     for (grp, ln, a0, a1, es), pis in sorted(groups.items(), key=lambda kv: (-kv[0][1], kv[0][0])):
         guide = _chan_txt(guide_keys, pis)
         cut_rows += (f"<tr><td><b>{E(grp)}</b><br><span class='s'>{E(ids[pis[0]])}…{E(ids[pis[-1]])}</span></td>"
-                     f"<td>{len(pis)}</td><td><b>{ln:.1f} mm</b></td><td>{E(_end_txt(a0, es[0]))}</td>"
+                     f"<td>{len(pis)}</td><td><b>{ln:.1f} mm</b></td><td>{E(tolerances.cut_tolerance(st, pis))}</td>"
+                     f"<td>{E(_end_txt(a0, es[0]))}</td>"
                      f"<td>{E(_end_txt(a1, es[1]))}</td><td>{guide}</td><td>{_sand_tag(a0, es[0], a1, es[1])}</td></tr>")
-    stick_rows = "".join(f"<li>Stick {k}: {E(', '.join(f'{lab} ({l:.1f})' for lab, l in b))}</li>"
+    stick_rows = "".join(f"<li>Stick {k}: {E(', '.join(f'{lab} ({l:.1f})' for lab, l in sorted(b, key=lambda x: _natural(x[0]))))}</li>"
                          for k, b in enumerate(plan.get("teacher-3x3", []), start=1))
     strip_ids = {ids[i] for i, p in enumerate(st.parts) if p.kind in ("diag", "leg")}
     strip_sticks = [k for k, b in enumerate(plan.get("teacher-3x3", []), start=1) if any(l in strip_ids for l, _ in b)]
     n_strip_sticks = max(strip_sticks) if strip_sticks else 0
-    scarf = st.params.get("ring_joint") == "scarf"
+    shingle = any(p.info.get("offsets") for p in st.parts)
+    scarf = shingle or st.params.get("ring_joint") == "scarf"      # ring pieces glued to each other (squares on maps)
 
     # ---- jig ------------------------------------------------------------------------------------------
     step_of = defaultdict(list)
@@ -591,7 +617,8 @@ def make_guide_html(st: Structure, res: Result, spec: Spec, jig_parts, images: d
         gmass = sum(res.mass.per_part[i] for i in pis)
         cups.append(f"{grp} ({ids[pis[0]]}–{ids[pis[-1]]}, {len(pis)})")
         prep_rows += (f"<tr><td>☐ <b>{E(grp)}</b><br><span class='s'>{E(ids[pis[0]])}…{E(ids[pis[-1]])}</span></td>"
-                      f"<td><b>{len(pis)}</b></td><td><b>{np.mean([st.parts[i].length for i in pis]):.1f} mm</b></td>"
+                      f"<td><b>{len(pis)}</b></td><td><b>{np.mean([st.parts[i].length for i in pis]):.1f} mm</b><br>"
+                      f"<span class='s'>{E(tolerances.cut_tolerance(st, pis))}</span></td>"
                       f"<td>{E(_end_txt(a0, es[0]))}</td><td>{E(_end_txt(a1, es[1]))}</td>"
                       f"<td>{_chan_txt(guide_keys, pis)}</td>"
                       f"<td>{_sand_tag(a0, es[0], a1, es[1])}</td><td>{st_txt}</td><td>≤ {gmass:.2f} g</td></tr>")
@@ -614,7 +641,7 @@ def make_guide_html(st: Structure, res: Result, spec: Spec, jig_parts, images: d
 </ul><p><b>Also:</b> razor saw, 240-grit sandpaper glued flat to a board, sharp pencil, 0.01 g scale, {len(cups)} small cups or bags.</p>
 </div></div>
 <p><b>Everything you need to make</b> ({res.n_parts} pieces from {n_sticks} sticks). Tick each row when its pieces are cut, sanded and labelled:</p>
-<table class="tight"><tr><th>Piece</th><th>Qty</th><th>Length</th><th>End 1</th><th>End 2</th><th>Cut with</th><th>Sand with</th><th>From stick</th><th>Group mass</th></tr>{prep_rows}</table>
+<table class="tight"><tr><th>Piece</th><th>Qty</th><th>Length (tolerance, mm)</th><th>End 1</th><th>End 2</th><th>Cut with</th><th>Sand with</th><th>From stick</th><th>Group mass</th></tr>{prep_rows}</table>
 <p><b>Do this:</b></p><ol>
 <li><b>Check the fit.</b> Slide a stick into each slot of {lab('fit_test_coupon')}. Find the smallest slot it slides into with light friction. If that isn't 3.3, set <b>Jig slot size</b> in the app to that number and export the build pack again before printing the other jigs.</li>
 <li><b>Sort the sticks.</b> Weigh each stick and number them 1–{n_sticks} in pencil, heaviest first. The stick plan in section 9 puts the strips on sticks 1–{n_strip_sticks}.</li>
@@ -626,6 +653,7 @@ def make_guide_html(st: Structure, res: Result, spec: Spec, jig_parts, images: d
 The lettered face is the <b>letter face</b>: it faces outwards on the tower.</li>
 <li><b>Mark the crossings</b> in {lab('marking_gauge')}. Lay each strip in its channel (A or B), letter face up, foot against the angled stop. Pencil a tick through every notch onto the letter face and carry it round onto both side faces. Copy the number beside the notch (1, 2, 3R …; R means a ring goes there). The strip's top end should line up with the END notch, within 1 mm.</li>
 <li><b>Sand the strip ends in {_lab(sj[0].name) if sj else ""}.</b> Put the jig on the sandpaper board, letter face of the strip towards the side marked LETTER FACE THIS SIDE. Push the foot (F) end down the slot labelled with its letter and FOOT (for example A FOOT) until it touches the sandpaper. Pinch the strip to the jig so it can't slide, and rub in small strokes. Stop as soon as the plastic all round the slot shows sanding marks: then the end is flush and exact. Do the top end the same way in the matching TOP slot. Check: the strip stands on the table at its lean without rocking. Never push the strip further down while sanding; that only makes it shorter.</li>''' if level else ''}
+{f"<li><b>Clean up the ring ends in {_lab('end_sanding_jig_rings')}.</b> Each ring end is already cut at its angle by the cutting guide. Find the end's angle in the table (degrees off square) and push the end down the slot with that number that leans the same way as the cut. Hold it still and rub until the plastic scuffs. Only do this if the end is rough or a piece is too long to sit between its strips: a few strokes take off about 0.1 mm.</li>" if 'end_sanding_jig_rings' in LABELS else ''}
 {f"<li><b>Scarf the ring ends in {_lab('scarf_sanding_guide')}.</b> Pencil an <b>O</b> on one face of each ring piece (its outer face). End 1: lay the piece in groove <b>O UP</b> (O face upwards) with its end 1 mm past the thin front edge, press it down with a finger and rub the guide on the sandpaper board until the plastic either side starts to scuff. End 2: the same in groove <b>O DOWN</b> (O face downwards). Pencil a small 2 next to end 2. Check: two pieces laid together, O faces up, overlap on their slopes with no light between them.</li>" if has_scarf else ''}
 <li><b>Count and check.</b> Count each cup against the table (cut 2–3 spare ring pieces of each size). Weigh each cup: it should be no more than the group mass shown, or swap in pieces from lighter sticks.</li></ol>
 <p class="check">⚖ All pieces together should weigh no more than <b>{sum(res.mass.per_part):.2f} g</b> before any glue.</p></div>"""
@@ -668,7 +696,12 @@ The lettered face is the <b>letter face</b>: it faces outwards on the tower.</li
                     f"{', '.join(f'{z:.0f}' for z in st.levels[1:-1])} mm above the table. Rings sit at some of "
                     f"those levels. The printed jig sets every one of these positions for you.</p>")
     util_svg = tower_svg(st, util=res.util, height=300)
-    if st.params.get("ring_joint") == "scarf":
+    if shingle:
+        ring_how = ("The pieces are <b>shingled</b>: each piece's left end lies flat on a B strip and its right end lies "
+                    "on top of the next piece, crossing it at the ring's corner angle. Glue goes on the strip patch "
+                    "and on the faces where the pieces cross (side grain on side grain, like the strip crossings), so "
+                    "each ring is one continuous hoop. Every piece is cut square: no shaping at all.")
+    elif st.params.get("ring_joint") == "scarf":
         ring_how = ("Neighbouring pieces <b>overlap each other on a 9 mm diagonal (scarf)</b> right over each B strip: one "
                     "piece lies flat on the strip and the next lies on top of it. Glue goes on the strip patch and on "
                     "the diagonal faces, so each ring is one continuous hoop.")
@@ -857,16 +890,24 @@ through the slot. Throw the offcut away.</li>
 from the slot, and saw gently through the slot. The piece between the slot and the stop is exactly the right length, and the
 end left on the stick is already cut for the next piece.</li>
 <li>Repeat step 3 along the stick. <b>Don't turn the stick over between cuts</b>, so the angled strip ends stay parallel.</li>
+<li><b>Channels with two angled slots</b> (pieces whose two ends are cut at different angles, like the ring pieces): push the
+stick against the stop at the left end of the channel and saw at <b>both</b> slots. The piece between the slots is the part; the
+short bit at the stop is waste.</li>
 <li>Write the piece ID on it in pencil and drop it in its cup. Strips also get their letter and F (Step 0).</li></ol>
-<table><tr><th>Piece</th><th>Qty</th><th>Length</th><th>End 1</th><th>End 2</th><th>Cut with</th><th>Sand ends with</th></tr>{cut_rows}</table>
-<div class="figrow"><div>{svg_level_cut(lean_angle)}</div><div>{svg_scarf() if st.params.get("ring_joint") == "scarf" else svg_lap(lap_angle)}</div><div>{svg_crossing()}</div></div>
+<table><tr><th>Piece</th><th>Qty</th><th>Length</th><th>Tolerance (mm)</th><th>End 1</th><th>End 2</th><th>Cut with</th><th>Sand ends with</th></tr>{cut_rows}</table>
+<h3>Tolerances: how accurate each cut has to be</h3>
+<p>Every size in this guide has a tolerance: how far off it can be and still fit. The jigs are made with these allowances
+built in, so if you use the jig as described you will be inside them.</p>
+<table class="tight"><tr><th>What</th><th>Nominal</th><th>Tolerance</th><th>How the jig allows for it</th><th>How to check</th></tr>{tol_rows}</table>
+{f'<p><b>Fit check of the 3D model</b> (run automatically when this pack was made):</p><table class="tight"><tr><th>Check</th><th>Result</th></tr>{fit_rows}</table><p class="s">Pass limits: a gap of up to 0.1 mm (thinner than a glue film) counts as touching; a hairline overlap of a few tenths of a millimetre means the parts are pressed together, which is what a glue joint wants.</p>' if fit_rows else ''}
+<div class="figrow"><div>{svg_level_cut(lean_angle)}</div><div>{svg_shingle() if shingle else svg_scarf() if st.params.get("ring_joint") == "scarf" else svg_lap(lap_angle)}</div><div>{svg_crossing()}</div></div>
 <ul>
 <li><b>Level cuts (strip ends):</b> the strips lean, so both ends are cut at the same angle and parallel to each other.
-The cutting guide gets the angle close. The sanding jig {"".join(_lab(j.name) for j in jig_parts if j.name.startswith("end_sanding"))}then makes it exact, including the slight inward tilt of the tower.</li>
-<li><b>Ring ends:</b> {ring_how} {"Cut the ring pieces square, then sand each scarf in " + _lab('scarf_sanding_guide') + "(Step 0): end 1 in groove O UP, end 2 in groove O DOWN, so the overlaps stack." if st.params.get("ring_joint") == "scarf" else "Trim the end parallel to the strip so the two pieces butt neatly."}</li>
+The cutting guide gets the angle close. The sanding jig {"".join(_lab(j.name) for j in jig_parts if j.name.startswith("end_sanding") and not j.name.endswith("rings"))}then makes it exact, including the slight inward tilt of the tower.</li>
+<li><b>Ring ends:</b> {ring_how} {"Cut the ring pieces square in the cutting guide; nothing else to shape. Each is cut 1 mm longer than its laps need, so a piece cut up to 0.5 mm short at either end still covers its crossing fully." if shingle else "Cut the ring pieces square, then sand each scarf in " + _lab('scarf_sanding_guide') + "(Step 0): end 1 in groove O UP, end 2 in groove O DOWN, so the overlaps stack." if st.params.get("ring_joint") == "scarf" else "Trim the end parallel to the strip so the two pieces butt neatly."}</li>
 <li><b>Crossings:</b> no cutting at all. The faces touch where B crosses A; you only glue there.</li>
 <li>Cut 2 or 3 spares of each ring length. Ring pieces are tiny and easy to lose or break.</li></ul>
-<p><b>Stick plan</b> (which pieces come from which stick, in mm, allowing 5 mm to square up the start and 2 mm per saw cut). Cut the strips from the heaviest sticks:</p>
+<p><b>Stick plan</b> (which pieces come from which stick, in mm, allowing 5 mm to square up the start, 2 mm per saw cut, and 3.5 mm for pieces cut between two angled slots). Cut the strips from the heaviest sticks:</p>
 <ul class="s">{stick_rows}</ul>
 
 <h2 class="pb">10. Build steps</h2>
@@ -914,7 +955,7 @@ The cutting guide gets the angle close. The sanding jig {"".join(_lab(j.name) fo
 <table><tr><th>What went wrong</th><th>What to do</th></tr>
 <tr><td>A strip breaks before it's glued</td><td>Cut a new one from a spare stick in channel 1, letter it, mark it in the marking gauge and sand its ends, exactly like the others.</td></tr>
 <tr><td>A glued piece breaks, or a joint is glued in the wrong place</td><td>{"Balsa cement softens with acetone: dab a little on the joint with a cotton bud, wait a minute, and ease the pieces apart. Scrape off the old glue, let it dry, and glue again." if "cement" in used else "Cut through the joint with a fresh blade, sand both faces clean and glue again."} Replace a broken piece with a spare.</td></tr>
-<tr><td>A scarf sanded too far (the piece is now too short to overlap)</td><td>Use one of the spare ring pieces.</td></tr>
+<tr><td>A ring piece too short (more than {2 * tolerances.CUT_TOL:.1f} mm gap at its ends)</td><td>Use one of the spare ring pieces.</td></tr>
 <tr><td>A strip end sanded too far (strip short of the END notch)</td><td>Over 1 mm short: cut a new strip. The tops must be level for the load plate.</td></tr>
 <tr><td>You run out of sticks</td><td>You have 2 spare; the offcuts at the end of the strip sticks are long enough for ring pieces.</td></tr>
 <tr><td>A jig part is lost or broken</td><td>Reprint just that file; its name is in the table in section 8 and Appendix B.</td></tr>

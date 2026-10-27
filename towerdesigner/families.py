@@ -125,8 +125,8 @@ SPACES["diagrid3"] = [
     Param("top_ratio", "float", 0.2, 1.0, label="Top radius ÷ base radius"),
     Param("ring_every", "int", 0, 2, label="Rings at crossings (0 none, 1 all, 2 every other)"),
     Param("joint", "choice", choices=("mitre", "lap"), label="Ring ends: mitred flush or lapped over the strip"),
-    Param("ring_joint", "choice", choices=("half lap", "scarf"),
-          label="Lapped ring pieces: meet end to end (half lap) or overlap on a diagonal (scarf)"),
+    Param("ring_joint", "choice", choices=("half lap", "shingled lap"),
+          label="Lapped ring pieces: meet end to end on the strip (half lap) or each laps over the next (shingled)"),
 ]
 
 FAMILY_NAMES = {
@@ -198,6 +198,10 @@ class Builder:
         self.strip_maker = strip_section   # makes ring/cap strips; 3x3 mode swaps in shaved sticks
         self.joint_style = "mitre"         # how brace/ring ends meet their host: 'mitre' or 'lap'
         self.ring_scarf = 0.0              # mm: ring pieces overlap each other on a long diagonal (0 = butt)
+        self.ring_layer = 0.0              # mm: how far outside the strip centre-lines the rings really sit
+        self.ring_shingle = False          # ring pieces lap over the next piece (one end on the strip, one on top)
+        self._ring_n = 3
+        self._shingle_waiting: dict[int, tuple[int, int]] = {}   # node -> (part, member) waiting for its partner
         self._scarf_waiting: dict[int, int] = {}   # node -> ring part whose scarf end is waiting for its partner
 
     # -- primitives --------------------------------------------------------------------------
@@ -244,6 +248,8 @@ class Builder:
         gamma = max(angle_between(x, host_axis), 15.0)
         s = math.sin(math.radians(gamma))
         c2 = math.cos(math.radians(gamma)) ** 2
+        if kind == "butt" and self.ring_shingle and piece_kind in ("ring", "base", "cap"):
+            return self._shingle_end(m, end, host, host_w, gamma, s)
         scarfed = (kind == "butt" and self.joint_style == "lap" and self.ring_scarf > 0
                    and piece_kind in ("ring", "base", "cap"))
         strength_area = None
@@ -279,6 +285,30 @@ class Builder:
                 self.joints.append(Joint(node, (other, mm.part), mm.sec.size_y * sc, "scarf",
                                          perimeter=2 * (sc + mm.sec.size_y), end_grain=0.0))
 
+    def _shingle_end(self, m, end, host, host_w, gamma, s):
+        """Shingled ring: end 0 lies on the strip (glued over the strip's full width); end 1 lies on top of the
+        next piece's end 0 and is glued to it face to face where they cross (like a strip crossing)."""
+        mm = self.members[m]
+        node = mm.i if end == 0 else mm.j
+        if end == 0:
+            area = mm.sec.size_y * host_w / s
+            per = 2 * (mm.sec.size_y + host_w) / s
+            mm.ends[end] = dict(host=host, area=area, kind="lap end", gamma=gamma, gusset=None, bond=LAP_BOND)
+            self.joints.append(Joint(node, (mm.part, host), area, "lap end", perimeter=per, end_grain=0.0))
+            mm.ends[end]["joint"] = len(self.joints) - 1
+        other = self._shingle_waiting.pop(node, None)
+        if other is None:
+            self._shingle_waiting[node] = (mm.part, m)
+            return
+        om = self.members[other[1]]
+        ang = max(angle_between(self.axis(m), self.axis(other[1])), 10.0)
+        if ang > 90:
+            ang = 180 - ang
+        w = mm.sec.size_y
+        area = w * om.sec.size_y / math.sin(math.radians(max(ang, 10.0)))
+        outer, inner = (mm.part, other[0]) if end == 1 else (other[0], mm.part)
+        self.joints.append(Joint(node, (outer, inner), area, "lap", perimeter=4 * w / math.sin(math.radians(max(ang, 10.0)))))
+
     # -- strips between two nodes, butt-glued at both ends ------------------------------------
     def strip_between(self, a, b, sec, kind, name, normal, hosts, step, mid=None, group=""):
         """A straight piece from node a to b (optionally through node `mid`).
@@ -287,6 +317,13 @@ class Builder:
         normal = face normal (the strip's thickness direction).
         """
         L = self.length(a, b)
+        shingle = self.ring_shingle and kind in ("ring", "base", "cap")
+        if self.ring_layer and kind in ("ring", "base", "cap"):
+            # rings sit outside the strips, where the gap between neighbouring crossings is longer; a shingled
+            # piece starts on the strip (one layer out) and ends on top of the next piece (two layers out)
+            ra, rb_ = unit(np.r_[self.nodes[a][:2], 0]), unit(np.r_[self.nodes[b][:2], 0])
+            o1 = self.ring_layer + (3.0 if shingle else 0.0)
+            L = float(np.linalg.norm(self.nodes[b] + rb_ * o1 - self.nodes[a] - ra * self.ring_layer))
         x = unit(self.nodes[b] - self.nodes[a])
         y = unit(np.cross(normal, x))
         trims, cuts = [], []
@@ -300,7 +337,12 @@ class Builder:
             trims.append(h[2] / s)
             cuts.append((float(hax @ x), float(hax @ y)))
         ring_scarf = self.ring_scarf if (self.joint_style == "lap" and kind in ("ring", "base", "cap")) else 0.0
-        if ring_scarf:
+        if shingle:
+            # each end runs on past the crossing far enough to cover it fully (a w-wide stick crossing another
+            # at the ring's corner angle needs w / sin(angle) of length)
+            corner = 2 * math.pi / max(3, self._ring_n)
+            Lc = L + sec.size_y / math.sin(corner) + 2 * RING_END_ALLOWANCE
+        elif ring_scarf:
             # scarfed ring ends run on past the strip's centre by half the scarf, overlapping the next piece
             Lc = L + ring_scarf
         elif self.joint_style == "lap":
@@ -312,10 +354,13 @@ class Builder:
             name=name, kind=kind, sec=sec, volume=sec.A * Lc, length=Lc,
             laminate_area=sec.lamination_bond * Lc, laser=sec.laser, stock=sec.stock, step=step,
             end_angles=tuple(90 - angle_between((c[0], c[1], 0), (0, 1, 0)) for c in cuts),
-            group=group, info=dict(end_style=[("scarf" if ring_scarf else "lap" if self.joint_style == "lap"
-                                               else "mitre") if h else "square"
+            group=group, info=dict(end_style=[("shingle" if shingle else "scarf" if ring_scarf else
+                                               "lap" if self.joint_style == "lap" else "mitre") if h else "square"
                                               for h in hosts]),
         )
+        if shingle:
+            self.parts[p].info["offsets"] = (self.ring_layer, self.ring_layer + 3.0)
+            self.parts[p].end_angles = (90.0, 90.0)
         if sec.laser:
             self.parts[p].outline = [[strip_outline(Lc, sec.w, cuts[0], cuts[1])]]
         pts = [a, b] if mid is None else [a, mid, b]
@@ -347,6 +392,7 @@ class Builder:
     def ring(self, corner_nodes, t, w, mode, kind, step, leg_parts, leg_secs, mids=None,
              name="Ring", face_normals=None):
         n = len(corner_nodes)
+        self._ring_n = n
         spec = self.spec
         z = float(self.nodes[corner_nodes[0]][2])
         if mode == "frame" and not self._frame_fits(corner_nodes, t, w, leg_secs):
@@ -768,8 +814,11 @@ def build_diagrid(p: dict, spec: Spec, family: str = "diagrid", sticks3: bool = 
     if sticks3:
         b.strip_maker = shaved_section
         b.joint_style = p.get("joint", "mitre")
-        if p.get("ring_joint") == "scarf":
-            b.ring_scarf = 9.0      # 3x the stick size: a 1-in-3 diagonal
+        if b.joint_style == "lap":
+            b.ring_layer = 2 * 3.0  # A half + B + ring half, from the A centre-line
+            # (a flat scarf can't close at the ring's corners with full-size sticks, so old "scarf" designs
+            # are built as shingled laps)
+            b.ring_shingle = p.get("ring_joint") in ("shingled lap", "scarf")
     n, H = int(p["n_sides"]), spec.height
     k = max(1, min(n - 1, int(round(float(p["twist"]) * n))))
     phi = k * math.pi / n
@@ -850,6 +899,8 @@ def build_diagrid(p: dict, spec: Spec, family: str = "diagrid", sticks3: bool = 
     return b.finish(list(N[0]), list(N[k]), z, a_parts, H,
                     info=dict(base_r=rb, top_r=rt, n=n, twist_k=k))
 
+
+RING_END_ALLOWANCE = 0.5   # mm extra at each end of a shingled ring piece: covers a ±0.5 mm cutting error
 
 FULL3 = dict(brace_t=3.0, brace_w=3.0, ring_t=3.0, ring_w=3.0, cap_t=3.0, cap_w=3.0, base_t=3.0, base_w=3.0)
 

@@ -20,11 +20,13 @@ It builds only from 3 × 3 mm sticks: every piece is one full-size stick, and on
   - strength that depends on the grain angle (Hankinson)
   - geometric-stiffness buckling, with imperfections included
   - realism knock-downs for uneven bearing, a slightly crooked build and variable wood
+- **Checks that everything fits.** Every export runs a fit check on the 3D model: each crossing, each ring end on its strip and each ring-to-ring joint must touch, and the jig must never overlap the tower. The results are printed in the guide.
+- **Gives a tolerance for every cut.** The guide has a tolerance table, plus a tolerance for every row of the cut list. The jigs carry the matching allowances: strips cut 0.3 mm long for sanding, length ticks on the marking gauge, and slot clearances set from a fit-test coupon.
 - **Picks the glue joint by joint.** Glue mass comes from the glue's viscosity and the glued area. Choices are balsa cement, PVA, superglue or 5-minute epoxy, and gluing can be kept symmetric round the tower.
 - **Calibrates to your materials.** Printable wood and glue test kits measure your sticks and your gluing, and the app uses the results.
 - **Exports a build pack.** It contains:
   - `tower.step` (one solid per stick) and `tower.stl`
-  - every jig part as STL and STEP, each with an engraved ID: base plate, keyed mast, spacers with collar-support discs, numbered collar segments, cutting guide, sanding jigs, marking gauge and a fit-test coupon
+  - every jig part as STL and STEP, each with an engraved ID: base plate, keyed mast, spacers with collar-support discs, numbered collar segments, cutting guide with stops, strip-end and ring-end sanding jigs, marking gauge and a fit-test coupon
   - a 3D model and picture of every build step
   - a long assembly guide PDF: cut list, grain, a glue map with colour codes, a print plan, step-by-step instructions with weigh-ins, and a section on fixing mistakes
 
@@ -32,11 +34,12 @@ It builds only from 3 × 3 mm sticks: every piece is one full-size stick, and on
 
 `examples/reference-tower/` holds the tower this app was built for. The app opens it by default.
 
-| Design | 3 × 3 twisted diagrid, 19 strips each way, Ø127 → Ø99 mm |
+| Design | 3 × 3 hyperboloid lattice, 20 straight strips twisting each way, Ø143 → Ø100 mm |
 |---|---|
-| Rings | base, three crossing levels, top; scarfed ring joints |
-| Pieces | 133 pieces from 13 sticks, 399 balsa-cement joints |
-| Predicted | 83.3 kg at 19.24 g (book balsa values) |
+| Rings | base ring, a ring at every crossing level, top ring; half-lap joints (two pieces meet end to end on each strip) |
+| Pieces | 160 pieces from 14 sticks, 320 balsa-cement joints |
+| Predicted | 70.8 kg at 18.38 g (book balsa values) |
+| Fit check | 0.00 mm gap at every crossing and ring joint; the jig never overlaps the tower |
 
 Its full assembly guide is [`examples/reference-tower/Assembly guide.pdf`](examples/reference-tower/Assembly%20guide.pdf). The predicted load uses book values for medium balsa. Run the wood test before trusting it; real towers usually reach 50–100 % of the prediction.
 
@@ -74,7 +77,7 @@ This produces `dist/Tower Designer.app`.
 
 ## Using it
 
-1. **Before you print the jig:** print `fit_test_coupon.stl` first. Find the smallest slot a stick slides into with light friction, and set **Jig slot size** to that number.
+1. **Before you print the rest of the jig:** print `fit_test_coupon.stl` first. Find the smallest slot a stick slides into with light friction, and set **Jig slot size** to that number.
 2. **Do the wood test** (`test-kits/Wood test kit/`): weigh, crush and buckle a few sticks, then enter the results under **Wood and glue → Wood test…**.
 3. **Optionally, do the glue test** (`test-kits/Glue test kit/`) so each glue's mass matches your gluing.
 4. **Search for a design:** click **Design my tower**. Quick takes about 20 s, Normal 1–2 min, Thorough about 5 min.

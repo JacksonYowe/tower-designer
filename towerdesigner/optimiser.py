@@ -192,7 +192,7 @@ def seeds(family: str, spec: Spec) -> list[dict]:
     elif family == "diagrid3":
         for n in (8, 12, 16, 20, 24):
             for tw in (0.25, 0.34, 0.5):
-                for joint, rj in (("mitre", "half lap"), ("lap", "half lap"), ("lap", "scarf")):
+                for joint, rj in (("mitre", "half lap"), ("lap", "half lap"), ("lap", "shingled lap")):
                     out.append(dict(n_sides=n, twist=tw, base_r=H / 4.4, top_ratio=0.6, ring_every=1, joint=joint,
                                     ring_joint=rj))
     return out

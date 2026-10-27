@@ -1,13 +1,13 @@
 {
   "family": "diagrid3",
   "params": {
-    "n_sides": 19,
-    "twist": 0.3722145087634917,
-    "base_r": 63.718840659723554,
-    "top_ratio": 0.7759258148317951,
-    "ring_every": 2,
+    "n_sides": 20,
+    "twist": 0.24460249363811576,
+    "base_r": 71.46879552864962,
+    "top_ratio": 0.7029158791227632,
+    "ring_every": 1,
     "joint": "lap",
-    "ring_joint": "scarf",
+    "ring_joint": "half lap",
     "member_type": "shaved",
     "cap_mode": "strips",
     "base_mode": "strips",
@@ -60,9 +60,9 @@
     ]
   },
   "summary": {
-    "load_kg": 83.26132153832653,
-    "mass_g": 19.244842942065876,
-    "governing": "Strip B3 crushes",
+    "load_kg": 70.81336908578598,
+    "mass_g": 18.37688502579761,
+    "governing": "Strip B13 crushes",
     "glue": "mixed"
   }
 }

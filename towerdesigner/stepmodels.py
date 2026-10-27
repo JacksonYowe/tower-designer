@@ -113,14 +113,14 @@ def plan_steps(st: Structure, jig_parts) -> list[Step]:
                "Every segment's ID is on top, and the IDs read C1-…, C2-… from the bottom up."],
         mistakes=["Stacking the spacers in the wrong order puts the collars at the wrong heights, so the strips won't "
                   "follow their notches. The disc on each spacer says which collar goes on it (\"under C3\")."])]
-    scarf = st.params.get("ring_joint") == "scarf"
-    meet = ("Neighbouring pieces overlap on their 9 mm scarf, centred on a crossing. Hold each piece with its "
-            "<b>O</b> face outwards and its <b>end 2</b> (the end where you can see the sloping scarf face) to the "
-            "right. Work to the right: each new piece's end 1 lies on top of the last piece's end 2. Glue the strip "
-            "patch and the sloping faces." if scarf
+    shingle = st.params.get("ring_joint") in ("shingled lap", "scarf")
+    meet = ("Each piece's <b>left</b> end lies flat on a B strip; its <b>right</b> end lies on top of the next piece's "
+            "left end, where the two cross (left and right as you look at the tower from outside). Work from right to "
+            "left, so every right end has a piece to sit on. Double-glue the strip patch under each left end and the "
+            "two faces where the pieces cross." if shingle
             else "Neighbouring pieces meet end to end on a B strip, each covering half its width.")
-    close = (" Leave the <b>first</b> piece's end 1 unglued until the end; then slide the last piece's end 2 "
-             "underneath it and glue both together." if scarf else "")
+    close = (" Leave the <b>first</b> piece's right end unglued and lifted slightly; when you get back round, slide the "
+             "last piece's left end underneath it, then glue both." if shingle else "")
     if st.family.startswith("diagrid"):
         def rng(group):
             ps = sorted(by.get(group, []), key=lambda i: _natural(ids[i]))
@@ -186,16 +186,16 @@ def plan_steps(st: Structure, jig_parts) -> list[Step]:
             steps.append(Step(g.lower().replace(" ", "_"), f"{g}: {lvh[1]:.0f} mm up" if lvh else g, by[g], jig_all, [
                 f"Take the {g} pieces ({rng(g)}). This ring goes at {where}.",
                 "Each piece runs from one crossing to the next, lying on the outside of the B strips. " + meet,
-                "Centre each scarf on the crossing (the tick). You don't need to measure heights: the crossings set "
+                "Each end crosses its strip right at the tick. You don't need to measure heights: the crossings set "
                 "them.",
-                f"Start at the strips above the <b>{mark}</b> mark and go round to the right using the glue map and "
+                f"Start at the strips above the <b>{mark}</b> mark and go round " + ("to the left" if shingle else "to the right") + " using the glue map and "
                 "table on this page." + close,
             ], checks=["The ring is level; every piece sits flat on the crossings."]))
         steps.append(Step("cap", "Top ring", by.get("Top cap", []), jig_all, [
             f"Take the top-ring pieces ({rng('Top cap')}).",
             "Lay each piece on the outside of the B strips, with its top flush with the strip tops. " + meet +
             " Glue both ends (dot colour = glue).",
-            f"Start at the strips above the <b>{mark}</b> mark and go round to the right, using the glue map and "
+            f"Start at the strips above the <b>{mark}</b> mark and go round " + ("to the left" if shingle else "to the right") + ", using the glue map and "
             "table on this page." + close,
         ], checks=["The top ring is flush with the strip ends all the way round."]))
     else:

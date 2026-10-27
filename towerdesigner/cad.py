@@ -148,6 +148,28 @@ def _straight_chain(st: Structure, part: Part):
     return (a, b, ms[0]) if dev < 0.3 else None
 
 
+def _lap_ring_solid(st: Structure, part: Part, p0, p1, m, grow: float) -> cq.Shape:
+    """Half-lap ring piece: each end is cut along the middle of the strip it sits on (a plane through the strip's
+    axis and the radial line), so neighbouring pieces meet flush on the strip."""
+    body = cq.Workplane().add(member_solid(p0, p1, m.sec, m.ref, grow, extend=4.0))
+    for c, other, node in ((p0, p1, m.i), (p1, p0, m.j)):
+        host = outer_strip_at(st, node, None)
+        ch = _straight_chain(st, st.parts[host]) if host is not None else None
+        if ch is None:
+            continue
+        axis = _unit(ch[1] - ch[0])
+        n = np.cross(axis, _radial(c))
+        if np.linalg.norm(n) < 1e-6:
+            continue
+        n = _unit(n)
+        if n @ (c - other) < 0:
+            n = -n
+        cut = cq.Workplane(cq.Plane(origin=tuple(map(float, c + n * grow)), xDir=tuple(map(float, axis)),
+                                    normal=tuple(map(float, n)))).rect(200, 200).extrude(50)
+        body = body.cut(cut)
+    return body.val()
+
+
 def part_solids(st: Structure, pi: int, grow: float = 0.0) -> list[cq.Shape]:
     part = st.parts[pi]
     if part.kind in ("cap", "base") and part.info.get("g_ang") is not None:
@@ -176,6 +198,15 @@ def part_solids(st: Structure, pi: int, grow: float = 0.0) -> list[cq.Shape]:
     if chain is not None:
         # one physical stick = one solid, drawn straight from its first node to its last
         p0, p1, m = chain
+        if part.info.get("offsets"):
+            # shingled ring piece: on the strip at its first end, on top of the next piece at its second,
+            # running on past both crossings so each one is fully covered
+            o0, o1 = part.info["offsets"]
+            q0, q1 = p0 + _radial(p0) * o0, p1 + _radial(p1) * o1
+            if dz:
+                q0, q1 = q0 + np.array([0, 0, dz]), q1 + np.array([0, 0, dz])
+            ext = max(0.0, (part.length - float(np.linalg.norm(q1 - q0))) / 2)
+            return [member_solid(q0, q1, m.sec, m.ref, grow, extend=ext)]
         if part.offset:
             # push the straight outer stick out until it just touches every node it crosses
             # the sticks it crosses (centre lines), from its lap joints
@@ -191,7 +222,9 @@ def part_solids(st: Structure, pi: int, grow: float = 0.0) -> list[cq.Shape]:
             for _ in range(80):
                 q0 = p0 + _radial(p0) * part.offset * k
                 q1 = p1 + _radial(p1) * part.offset * k
-                gap = min((_line_gap(q0, q1, a0, a1) for a0, a1 in crossed), default=part.offset)
+                if not crossed:                   # rings: nothing crossed to clear, the offset is exact
+                    break
+                gap = min(_line_gap(q0, q1, a0, a1) for a0, a1 in crossed)
                 if gap >= part.offset * 1.02:     # faces just touch (a hair of clearance for the corners)
                     break
                 k += 0.01
@@ -199,6 +232,8 @@ def part_solids(st: Structure, pi: int, grow: float = 0.0) -> list[cq.Shape]:
         if dz:
             p0, p1 = p0 + np.array([0, 0, dz]), p1 + np.array([0, 0, dz])
         ref = m.ref
+        if part.kind in ("ring", "base", "cap") and "lap" in part.info.get("end_style", []) and len(part.members) == 1:
+            return [_lap_ring_solid(st, part, p0, p1, m, grow)]
         if len(part.members) > 1:
             # face the stick to the tower surface at its middle (a straight stick can't follow it everywhere)
             u = (p1 - p0) / np.linalg.norm(p1 - p0)
@@ -541,6 +576,13 @@ def _part_ids(st: Structure) -> list[str]:
 
 
 # ---- preparation jigs ------------------------------------------------------------------------------
+def outer_strip_at(st: Structure, node: int, default: int) -> int:
+    """The outermost strip passing through a node: what a ring end there is really glued to."""
+    at = [pi for pi, p in enumerate(st.parts) if p.kind in ("diag", "leg") and any(
+        node in (st.members[m].i, st.members[m].j) for m in p.members)]
+    return max(at, key=lambda pi: st.parts[pi].offset) if at else default
+
+
 def level_parts(st: Structure) -> list[int]:
     """Straight strips with a level cut at both ends (the diagrid strips)."""
     return [pi for pi, p in enumerate(st.parts) if p.sec is not None and not p.laser
@@ -579,7 +621,7 @@ def cut_channels(st: Structure) -> list[dict]:
         L = round(p.length, 1)
         if pi in level:
             key = (p.stock, L, "parallel", round(abs(level_angle(st, pi)), 1))
-        elif "scarf" in es:
+        elif "scarf" in es or "shingle" in es:
             key = (p.stock, L, "square", 0.0)
         else:
             key = (p.stock, L, round(p.end_angles[0]), round(p.end_angles[1]))
@@ -590,8 +632,12 @@ def cut_channels(st: Structure) -> list[dict]:
         beta = level_angle(st, pis[0]) if key[2] == "parallel" else 0.0
         names = sorted({st.parts[i].group or st.parts[i].name for i in pis})
         short = "STRIPS" if all(g.startswith("Strip") for g in names) else "/".join(names).upper()
+        L = float(np.mean([st.parts[i].length for i in pis]))
+        if key[2] == "parallel":
+            from .tolerances import SAND_ALLOW
+            L += 2 * SAND_ALLOW          # left on for the sanding jig to clean up both ends
         out.append(dict(key=key, parts=pis, n=n, guide=(n - 1) // 8 + 1, ch=(n - 1) % 8 + 1,
-                        L=float(np.mean([st.parts[i].length for i in pis])), beta=beta, mode=key[2]
+                        L=L, beta=beta, mode=key[2]
                         if key[2] in ("parallel", "square") else "two", name=short,
                         a0=key[2] if key[2] not in ("parallel", "square") else 90,
                         a1=key[3] if key[2] not in ("parallel", "square") else 90))
@@ -760,20 +806,29 @@ def sanding_jigs(st: Structure) -> list[JigPart]:
     lj = _level_sanding_jig(st, 1)
     if lj:
         out.append(lj)
-    for off, pis in end_angle_groups(st, exclude_level=True).items():
+    groups = end_angle_groups(st, exclude_level=True)
+    if groups:
+        # one block for every other angled end (e.g. ring ends): a pair of slots per angle, leaning both ways
         n = len(out) + 1
-        body = cq.Workplane().box(46, 26, 22, centered=(True, True, False))
-        for y in (-6, 6):        # two slots, leaning opposite ways (for left- and right-leaning pieces)
-            sgn = 1 if y < 0 else -1
-            chan = (cq.Workplane().box(SLOT, SLOT, 90).rotate((0, 0, 0), (0, 1, 0), sgn * off)
-                    .translate((0, y, 11)))
-            body = body.cut(chan)
-        groups = sorted({st.parts[i].group for i in pis})
-        body = _text_cut(body, f"{off}°", 5, -14, 0, 22)
-        out.append(JigPart(f"end_sanding_jig_{off}deg", body.val(), 1,
-                           f"Sands {', '.join(groups)} ends to exactly {off}° off square. Push the stick down a slot "
-                           f"until its end pokes out of the bottom, rub the block on sandpaper until flush.",
-                           label=f"SJ{n}"))
+        offs = list(groups)
+        pitch = 10.0
+        width = pitch * len(offs) + 8
+        body = cq.Workplane().box(width, 34, 22, centered=(True, True, False))
+        for k, off in enumerate(offs):
+            x = -width / 2 + 4 + pitch * (k + 0.5)
+            for y, sgn in ((-7, 1), (7, -1)):     # leaning one way, then the other
+                chan = (cq.Workplane().box(SLOT, SLOT, 90).rotate((0, 0, 0), (0, 1, 0), sgn * off)
+                        .translate((x, y, 11)))
+                body = body.cut(chan)
+            body = _text_cut(body, f"{off}", 3.2, x, 13.5, 22)
+            body = _text_cut(body, f"{off}", 3.2, x, -13.5, 22)
+        body = _text_cut(body, f"SJ{n}  END ANGLE IN DEGREES OFF SQUARE", 2.8, 0, -17, 11, plane="XZ")
+        names = sorted({st.parts[i].group for pis in groups.values() for i in pis})
+        out.append(JigPart("end_sanding_jig_rings", body.val(), 1,
+                           f"Sands the angled ends of {', '.join(names)}. Each angle (degrees off square) has two "
+                           f"slots, one leaning each way: use the one that matches the cut end. Push the piece down "
+                           f"until it touches the sandpaper, hold it still and rub until the plastic scuffs.",
+                           label=f"SJ{n}", engraved=True))
     return out
 
 
@@ -823,6 +878,10 @@ def marking_gauge(st: Structure) -> JigPart | None:
                 .close().extrude(10).translate((0, 0, base)))
         body = body.cut(chan)
         marks = crossing_marks(st, pi) + [(st.parts[pi].length, "END")]
+        from .tolerances import CUT_TOL
+        for s in (st.parts[pi].length - CUT_TOL, st.parts[pi].length + CUT_TOL):   # length tolerance band
+            body = body.cut(cq.Workplane().box(0.5, w + 1.6, 10, centered=(True, True, False))
+                            .translate((x0 + s, yc, base + 2.5)))
         for s, lab in marks:
             body = body.cut(cq.Workplane().box(0.8, w + 3.0, 10, centered=(True, True, False))
                             .translate((x0 + s, yc, base + 1.0)))
