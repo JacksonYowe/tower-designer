@@ -225,7 +225,7 @@ def svg_base_section() -> str:
 <line x1="10" y1="110" x2="140" y2="110" stroke="#4a6fb5"/><line x1="200" y1="110" x2="460" y2="110" stroke="#4a6fb5"/>
 <polygon points="150,30 172,30 180,122 158,122" fill="#9e7347" stroke="#5a3a1a"/><text x="110" y="28" font-size="11">strip foot</text>
 <rect x="160" y="101" width="120" height="16" fill="#f5d55a" stroke="#8a6d10"/>
-<text x="290" y="100" font-size="11">base ring: sits in a groove,</text><text x="290" y="114" font-size="11">0.5 mm clear of the jig</text>
+<text x="290" y="100" font-size="11">base ring: sits in a groove,</text><text x="290" y="114" font-size="11">0.25 mm clear of the jig</text>
 <line x1="140" y1="122" x2="290" y2="122" stroke="#333" stroke-dasharray="3 2"/><text x="300" y="136" font-size="10">table level (pocket floor)</text>
 <circle cx="182" cy="108" r="4" fill="#d91a1a"/>
 </svg>"""
@@ -363,13 +363,13 @@ def _end_txt(a, s):
 
 
 GLOSSARY = [
-    ("Strip", "One of the long 220 mm sticks that run from the table to the top, leaning."),
+    ("Strip", "One of the long sticks that run from the table to the top, leaning (and twisting slightly)."),
     ("Set A / set B", "The two sets of strips. A strips are the inner layer and lean one way; B strips are the outer "
                       "layer and lean the other way. The pieces are identical until you letter them."),
     ("Letter face", "The face you write A or B on. It always faces outwards on the tower."),
     ("Foot (F)", "The end of a strip that stands on the table. You mark it F."),
     ("Crossing", "Where a B strip passes over an A strip; they are glued face to face there."),
-    ("Level", "One of the heights where the strips cross (1 = lowest). Rings sit at some levels."),
+    ("Level", "One of the heights where the strips cross (1 = lowest). An R after the number means a ring goes there."),
     ("Tick", "A pencil line on a strip, made with the marking gauge MG1, showing where a crossing goes."),
     ("Ring", "A hoop of short pieces glued round the outside at one level."),
     ("Shingled lap", "How the ring pieces join: each piece's left end lies on a strip and its right end lies on top "
@@ -644,14 +644,14 @@ def make_guide_html(st: Structure, res: Result, spec: Spec, jig_parts, images: d
 <table class="tight"><tr><th>Piece</th><th>Qty</th><th>Length (tolerance, mm)</th><th>End 1</th><th>End 2</th><th>Cut with</th><th>Sand with</th><th>From stick</th><th>Group mass</th></tr>{prep_rows}</table>
 <p><b>Do this:</b></p><ol>
 <li><b>Check the fit.</b> Slide a stick into each slot of {lab('fit_test_coupon')}. Find the smallest slot it slides into with light friction. If that isn't 3.3, set <b>Jig slot size</b> in the app to that number and export the build pack again before printing the other jigs.</li>
-<li><b>Sort the sticks.</b> Weigh each stick and number them 1–{n_sticks} in pencil, heaviest first. The stick plan in section 9 puts the strips on sticks 1–{n_strip_sticks}.</li>
+<li><b>Sort the sticks.</b> Weigh each stick and number them 1–{n_sticks} in pencil, heaviest first. <b>Go/no-go:</b> the {n_sticks} sticks together should weigh no more than <b>{n_sticks * stick_len * 9e-9 * w.density * 1000 * (spec.max_mass - res.mass.glue) / res.mass.wood:.1f} g</b>. Heavier than that and the finished tower will be over {spec.max_mass:.0f} g: do the wood test and re-run the design in the app with your density. The stick plan in section 9 puts the strips on sticks 1–{n_strip_sticks}.</li>
 <li><b>Label {len(cups)} cups:</b> {E('; '.join(cups))}. Every piece goes straight into its cup.</li>
 <li><b>Cut to length</b> in {_lab('cutting_guide_1')}(full method in section 9). Square up the stick's end at the slot first. Then for each piece: push the stick along until its end touches the stop, and saw at the slot. No measuring: the stop sets the length.</li>
 {f'''<li><b>Letter the strips as they come off the guide.</b> Each strip lies in the channel with its foot at the left (the slot end).
 {"".join(f"<li>{E(g)}: write <b>{E(g.split()[-1])}</b> and its number on the <b>top</b> face near the left end, then <b>F</b> at that end.</li>" for g in keep).join(("<ul>", "</ul>")) if keep else ""}
 {"".join(f"<li>{E(g)}: <b>roll it over</b> (keep the left end on the left), then write <b>{E(g.split()[-1])}</b> and its number on the new top face near the left end, and <b>F</b> at that end.</li>" for g in roll).join(("<ul>", "</ul>")) if roll else ""}
 The lettered face is the <b>letter face</b>: it faces outwards on the tower.</li>
-<li><b>Mark the crossings</b> in {lab('marking_gauge')}. Lay each strip in its channel (A or B), letter face up, foot against the angled stop. Pencil a tick through every notch onto the letter face and carry it round onto both side faces. Copy the number beside the notch (1, 2, 3R …; R means a ring goes there). The strip's top end should line up with the END notch, within 1 mm.</li>
+<li><b>Mark the crossings</b> in {lab('marking_gauge')}. Lay each strip in its channel (A or B), letter face up, foot against the angled stop. Pencil a tick through every notch onto the letter face and carry it round onto both side faces. Copy the label beside the notch ({", ".join(lab_ for _, lab_ in cad.crossing_marks(st, level[0]))}; R means a ring goes there). The strip's top end must land between the two small ticks either side of END (±{tolerances.CUT_TOL:.1f} mm).</li>
 <li><b>Sand the strip ends in {_lab(sj[0].name) if sj else ""}.</b> Put the jig on the sandpaper board, letter face of the strip towards the side marked LETTER FACE THIS SIDE. Push the foot (F) end down the slot labelled with its letter and FOOT (for example A FOOT) until it touches the sandpaper. Pinch the strip to the jig so it can't slide, and rub in small strokes. Stop as soon as the plastic all round the slot shows sanding marks: then the end is flush and exact. Do the top end the same way in the matching TOP slot. Check: the strip stands on the table at its lean without rocking. Never push the strip further down while sanding; that only makes it shorter.</li>''' if level else ''}
 {f"<li><b>Clean up the ring ends in {_lab('end_sanding_jig_rings')}.</b> Each ring end is already cut at its angle by the cutting guide. Find the end's angle in the table (degrees off square) and push the end down the slot with that number that leans the same way as the cut. Hold it still and rub until the plastic scuffs. Only do this if the end is rough or a piece is too long to sit between its strips: a few strokes take off about 0.1 mm.</li>" if 'end_sanding_jig_rings' in LABELS else ''}
 {f"<li><b>Scarf the ring ends in {_lab('scarf_sanding_guide')}.</b> Pencil an <b>O</b> on one face of each ring piece (its outer face). End 1: lay the piece in groove <b>O UP</b> (O face upwards) with its end 1 mm past the thin front edge, press it down with a finger and rub the guide on the sandpaper board until the plastic either side starts to scuff. End 2: the same in groove <b>O DOWN</b> (O face downwards). Pencil a small 2 next to end 2. Check: two pieces laid together, O faces up, overlap on their slopes with no light between them.</li>" if has_scarf else ''}
@@ -693,8 +693,9 @@ The lettered face is the <b>letter face</b>: it faces outwards on the tower.</li
                     f"way up. The base is Ø{2 * info['base_r']:.0f} mm and the top Ø{2 * info['top_r']:.0f} mm, "
                     f"measured to the strip centres, so the tower narrows like a cooling tower. Feet are "
                     f"{360 / info['n']:.1f}° apart round the base. The strips cross at {len(st.levels) - 2} levels: "
-                    f"{', '.join(f'{z:.0f}' for z in st.levels[1:-1])} mm above the table. Rings sit at some of "
-                    f"those levels. The printed jig sets every one of these positions for you.</p>")
+                    f"{', '.join(f'{z:.0f}' for z in st.levels[1:-1])} mm above the table. Rings sit at "
+                    + ("every one of " if all(k in cad.ring_levels(st) for k in range(1, len(st.levels) - 1)) else "some of ")
+                    + "those levels. The printed jig sets every one of these positions for you.</p>")
     util_svg = tower_svg(st, util=res.util, height=300)
     if shingle:
         ring_how = ("The pieces are <b>shingled</b>: each piece's left end lies flat on a B strip and its right end lies "
@@ -748,7 +749,7 @@ pole, built only from supplied 3 × 3 mm sticks (full size; only the joints are 
 <li>⚖ boxes are weigh-ins. Weigh the tower after each step once its glue is dry. If you are over, you are using too much glue.</li>
 <li>☐ boxes are checks to tick before you move on. ⏸ boxes mean wait for the glue.</li></ul>
 <p><b>Words used in this guide</b></p>
-<table class="tight">{''.join(f'<tr><td style="width:22%"><b>{E(a)}</b></td><td>{E(b)}</td></tr>' for a, b in GLOSSARY)}</table>
+<table class="tight">{''.join(f'<tr><td style="width:22%"><b>{E(a)}</b></td><td>{E(b)}</td></tr>' for a, b in GLOSSARY if shingle or a != "Shingled lap")}</table>
 
 <h2>2. How the tower works</h2>
 <div class="cols"><div style="flex:0 0 30%">{util_svg}<p class="s">Colour = how hard each piece works at the predicted
@@ -775,12 +776,12 @@ Each layer is one 3 mm stick thick, and every joint is a face glued flat on a fa
 <div>{_img(images.get('detail_ring'))}<p class="s"><b>A ring at a crossing level.</b> Ring pieces (gold) lie on the B strips. {ring_how}</p></div></div>
 <div class="cols">
 <div>{_img(images.get('detail_base'))}<p class="s"><b>The base ring in the jig.</b> It lies on the outside of the feet, in a shallow groove in the
-base plate (blue) that keeps it 0.5 mm clear of the plastic.</p></div>
+base plate (blue) that keeps it {cad.FIT:.2f} mm clear of the plastic.</p></div>
 <div>{_img(images.get('detail_cap'))}<p class="s"><b>The top ring.</b> Its top is flush with the strip tops so the load plate presses on both.</p></div></div>
 <div class="cols"><div>{svg_base_section()}</div><div>
 <p><b>Why the base ring doesn't hit the jig:</b></p><ul>
 <li>The strip feet stand in 2 mm-deep pockets in the base plate. The base ring sits just above the feet on the outside, in its own
-groove, with 0.5 mm of air underneath, so it is never glued to or trapped by the plate.</li>
+groove, with {cad.FIT:.2f} mm of air all round, so it is never glued to or trapped by the plate.</li>
 <li>The collars hold the strips from the <b>inside</b>; every ring is on the <b>outside</b>. The lowest collar starts
 {(cad.collar_heights(st) or [0])[0] - cad.COLLAR_T / 2:.0f} mm up, well above the base ring.</li>
 <li>Collars sit between the ring levels, never at the same height.</li>
@@ -850,14 +851,14 @@ the sun or a damp room before building.</p>
 <div class="cols"><div style="flex:0 0 36%">{_img(images.get('glue_map'))}<p class="s">Glue map: every glue point on the tower,
 coloured by the glue to use. Each step's picture and 3D model shows the same dots.</p></div><div>
 <p>{"Each joint gets the lightest glue that is still strong enough for the load it carries." if len(used) > 1 else f"Every joint uses {E(GLUES[used[0]].name)}."} "Apply" is roughly what to put
-on; "dries to" is the most that should stay in the joint. A pinhead dab is about 2–4 mg.</p>
-<table><tr><th>Where</th><th>Joint</th><th>Glue</th><th>Count</th><th>Apply (wet)</th><th>Dries to</th></tr>{glue_rows}</table>
+on; "dries to" is the average most that should stay in each joint (joints with a bigger face get a little more). A pinhead dab is about 2–4 mg.</p>
+<table><tr><th>Where</th><th>Joint</th><th>Glue</th><th>Count</th><th>Apply (wet, average)</th><th>Dries to (average)</th></tr>{glue_rows}</table>
 {crit_txt}</div></div>
 <p><b>How to use each glue</b></p>
 <table><tr><th>Glue</th><th>Method</th><th>Cure</th><th>In this tower</th></tr>{glue_how}</table>
 <p><b>Preparing a joint:</b> make sure the two faces touch flat with no light showing between them. If they don't, touch
 the contact area (only) once on the sandpaper. Blow off dust before gluing. Don't fill gaps with extra glue; fix the fit instead.</p>
-<p class="s">If you'd rather not use balsa cement: With PVA on every joint, this tower would weigh
+<p class="s">If you'd rather not use balsa cement: with PVA on every joint, this tower would weigh
 {pva_only.mass.total:.2f} g and hold {pva_only.load_kg:.0f} kg{' — over the limit. To switch, set Glue to PVA only in the app, re-run the search, and export again' if pva_only.mass.total > spec.max_mass else ''}.</p>
 
 <h2 class="pb">8. Printing the jig</h2>
@@ -891,15 +892,17 @@ from the slot, and saw gently through the slot. The piece between the slot and t
 end left on the stick is already cut for the next piece.</li>
 <li>Repeat step 3 along the stick. <b>Don't turn the stick over between cuts</b>, so the angled strip ends stay parallel.</li>
 <li><b>Channels with two angled slots</b> (pieces whose two ends are cut at different angles, like the ring pieces): push the
-stick against the stop at the left end of the channel and saw at <b>both</b> slots. The piece between the slots is the part; the
-short bit at the stop is waste.</li>
+stick against the stop at the left end of the channel and saw at <b>both</b> slots, keeping the saw against the <b>waste side</b> of each
+slot (the side away from the piece): the slots are spaced so the piece comes out exactly to length after the saw cut. Before you take the
+piece out, pencil an <b>arrow on its top face pointing to the right-hand end</b>. In the ring, that face goes outwards with the arrow
+pointing right; the two ends are cut at different angles, so this is the only way round it fits.</li>
 <li>Write the piece ID on it in pencil and drop it in its cup. Strips also get their letter and F (Step 0).</li></ol>
 <table><tr><th>Piece</th><th>Qty</th><th>Length</th><th>Tolerance (mm)</th><th>End 1</th><th>End 2</th><th>Cut with</th><th>Sand ends with</th></tr>{cut_rows}</table>
 <h3>Tolerances: how accurate each cut has to be</h3>
 <p>Every size in this guide has a tolerance: how far off it can be and still fit. The jigs are made with these allowances
 built in, so if you use the jig as described you will be inside them.</p>
 <table class="tight"><tr><th>What</th><th>Nominal</th><th>Tolerance</th><th>How the jig allows for it</th><th>How to check</th></tr>{tol_rows}</table>
-{f'<p><b>Fit check of the 3D model</b> (run automatically when this pack was made):</p><table class="tight"><tr><th>Check</th><th>Result</th></tr>{fit_rows}</table><p class="s">Pass limits: a gap of up to 0.1 mm (thinner than a glue film) counts as touching; a hairline overlap of a few tenths of a millimetre means the parts are pressed together, which is what a glue joint wants.</p>' if fit_rows else ''}
+{f'<p><b>Fit check of the 3D model</b> (run automatically when this pack was made):</p><table class="tight"><tr><th>Check</th><th>Result</th></tr>{fit_rows}</table><p class="s">How it is checked: every glued pair is measured in the 3D model, with the strips twisted to the surface as they really sit. A face counts as touching where it is within 0.2 mm once the joint is pegged or pressed (balsa squeezes that much). A gap before pegging means the straight strip bends that little when you peg it. A hairline overlap of a few tenths of a millimetre means the parts press together, which is what a glue joint wants.</p>' if fit_rows else ''}
 <div class="figrow"><div>{svg_level_cut(lean_angle)}</div><div>{svg_shingle() if shingle else svg_scarf() if st.params.get("ring_joint") == "scarf" else svg_lap(lap_angle)}</div><div>{svg_crossing()}</div></div>
 <ul>
 <li><b>Level cuts (strip ends):</b> the strips lean, so both ends are cut at the same angle and parallel to each other.
@@ -919,7 +922,7 @@ The cutting guide gets the angle close. The sanding jig {"".join(_lab(j.name) fo
 <tr><td>3</td><td>The rest of Step 3 (crossings)</td><td>12 h</td></tr>
 <tr><td>4</td><td>Base ring and the first ring</td><td>1 h</td></tr>
 <tr><td>5</td><td>The other rings and the top ring</td><td>24 h</td></tr>
-<tr><td>6</td><td>Step 9: remove the jig, finish, weigh</td><td>—</td></tr></table>
+<tr><td>6</td><td>Step {len(steps)}: remove the jig, finish, weigh</td><td>—</td></tr></table>
 {step0}
 {step_html}
 
@@ -947,16 +950,16 @@ The cutting guide gets the angle close. The sanding jig {"".join(_lab(j.name) fo
 <tr><td>A crossing doesn't touch (gap)</td><td>Strip not fully seated, or bowed</td><td>Re-seat the strip in its notches. Swap bowed strips for straight ones. Never fill a gap with glue.</td></tr>
 <tr><td>Over mass at a weigh-in</td><td>Too much glue</td><td>Use less on the remaining joints; wipe squeeze-out immediately. Do the glue test.</td></tr>
 <tr><td>Glue stuck the tower to the jig</td><td>Glue ran onto the plastic</td><td>Free it with a thin blade; sand the joint smooth. Keep packing tape on the base plate.</td></tr>
-<tr><td>Ring not level</td><td>Pieces glued at slightly different heights</td><td>Measure each piece from the table before the glue sets.</td></tr>
+<tr><td>Ring not level</td><td>Pieces glued at slightly different heights</td><td>Check each end sits on its pencil tick before the glue sets.</td></tr>
 <tr><td>Collar segment won't come out</td><td>Glue on the notch</td><td>Push it inwards firmly; if stuck, cut the segment with a knife. It is only a jig part.</td></tr>
-<tr><td>Tower rocks on the table</td><td>Feet not level</td><td>Short straight strokes on the sandpaper board with a book on top (Step 9). Never circles.</td></tr>
+<tr><td>Tower rocks on the table</td><td>Feet not level</td><td>Short straight strokes on the sandpaper board with a book on top (Step {len(steps)}). Never circles.</td></tr>
 <tr><td>Balsa cement joint stays soft</td><td>Single coat, or not cured</td><td>Use the double-glue method and wait 12 h.</td></tr></table>
 <p><b>Fixing mistakes</b></p>
 <table><tr><th>What went wrong</th><th>What to do</th></tr>
 <tr><td>A strip breaks before it's glued</td><td>Cut a new one from a spare stick in channel 1, letter it, mark it in the marking gauge and sand its ends, exactly like the others.</td></tr>
 <tr><td>A glued piece breaks, or a joint is glued in the wrong place</td><td>{"Balsa cement softens with acetone: dab a little on the joint with a cotton bud, wait a minute, and ease the pieces apart. Scrape off the old glue, let it dry, and glue again." if "cement" in used else "Cut through the joint with a fresh blade, sand both faces clean and glue again."} Replace a broken piece with a spare.</td></tr>
 <tr><td>A ring piece too short (more than {2 * tolerances.CUT_TOL:.1f} mm gap at its ends)</td><td>Use one of the spare ring pieces.</td></tr>
-<tr><td>A strip end sanded too far (strip short of the END notch)</td><td>Over 1 mm short: cut a new strip. The tops must be level for the load plate.</td></tr>
+<tr><td>A strip end sanded too far (strip short of the END notch)</td><td>More than {tolerances.CUT_TOL:.1f} mm short (outside the small ticks beside END): cut a new strip. The tops must be level, and the tower must stay over {spec.min_height:.0f} mm.</td></tr>
 <tr><td>You run out of sticks</td><td>You have 2 spare; the offcuts at the end of the strip sticks are long enough for ring pieces.</td></tr>
 <tr><td>A jig part is lost or broken</td><td>Reprint just that file; its name is in the table in section 8 and Appendix B.</td></tr>
 <tr><td>Over mass at the end</td><td>Don't sand pieces thinner. Look for big glue blobs and scrape them off with a blade.</td></tr></table>

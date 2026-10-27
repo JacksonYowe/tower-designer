@@ -20,7 +20,14 @@ It builds only from 3 × 3 mm sticks: every piece is one full-size stick, and on
   - strength that depends on the grain angle (Hankinson)
   - geometric-stiffness buckling, with imperfections included
   - realism knock-downs for uneven bearing, a slightly crooked build and variable wood
-- **Checks that everything fits.** Every export runs a fit check on the 3D model: each crossing, each ring end on its strip and each ring-to-ring joint must touch, and the jig must never overlap the tower. The results are printed in the guide.
+- **Models the sticks as they really sit.** Straight strips on a curved hyperboloid have to twist slightly to lie flat. The 3D model twists them to the surface, and the collar notches are cut at the matching angle at each height.
+- **Checks that everything fits.** Every export measures the 3D model, not just the closest point between parts:
+  - how much of every glue face actually touches once pressed
+  - the angle between crossing faces
+  - the gap a peg has to close
+  - that the jig never overlaps the tower
+
+  The results are printed in the guide.
 - **Gives a tolerance for every cut.** The guide has a tolerance table, plus a tolerance for every row of the cut list. The jigs carry the matching allowances: strips cut 0.3 mm long for sanding, length ticks on the marking gauge, and slot clearances set from a fit-test coupon.
 - **Picks the glue joint by joint.** Glue mass comes from the glue's viscosity and the glued area. Choices are balsa cement, PVA, superglue or 5-minute epoxy, and gluing can be kept symmetric round the tower.
 - **Calibrates to your materials.** Printable wood and glue test kits measure your sticks and your gluing, and the app uses the results.
@@ -34,12 +41,13 @@ It builds only from 3 × 3 mm sticks: every piece is one full-size stick, and on
 
 `examples/reference-tower/` holds the tower this app was built for. The app opens it by default.
 
-| Design | 3 × 3 hyperboloid lattice, 20 straight strips twisting each way, Ø143 → Ø100 mm |
+| Design | 3 × 3 hyperboloid lattice, 22 straight strips twisting each way, Ø91 → Ø78 mm, each strip twisting about 33° to sit flat |
 |---|---|
-| Rings | base ring, a ring at every crossing level, top ring; half-lap joints (two pieces meet end to end on each strip) |
-| Pieces | 160 pieces from 14 sticks, 320 balsa-cement joints |
-| Predicted | 70.8 kg at 18.38 g (book balsa values) |
-| Fit check | 0.00 mm gap at every crossing and ring joint; the jig never overlaps the tower |
+| Rings | base ring, rings at crossing levels 1 and 3, top ring; half-lap joints on the outer strips |
+| Joints | 286: every crossing, every foot and top (inner strip glued to outer), and the ring ends |
+| Pieces | 132 pieces from 13 sticks |
+| Predicted | 59.8 kg at 19.03 g (book balsa values; designed to a 19.3 g target to leave margin for denser wood) |
+| Fit check | crossing faces within 0.1° of parallel, 92–100 % of each glue face touching once pegged; ring joints flush; the jig never overlaps the tower |
 
 Its full assembly guide is [`examples/reference-tower/Assembly guide.pdf`](examples/reference-tower/Assembly%20guide.pdf). The predicted load uses book values for medium balsa. Run the wood test before trusting it; real towers usually reach 50–100 % of the prediction.
 

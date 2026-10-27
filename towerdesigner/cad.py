@@ -148,17 +148,109 @@ def _straight_chain(st: Structure, part: Part):
     return (a, b, ms[0]) if dev < 0.3 else None
 
 
+_NORMALS: dict[int, tuple] = {}
+
+
+def surface_normal(st: Structure, p) -> np.ndarray:
+    """Outward normal of the tower surface (a surface of revolution through the A strips) at point p."""
+    key = id(st)
+    if key not in _NORMALS:
+        a_line = None
+        for part in st.parts:
+            if part.kind in ("diag", "leg") and not part.offset and len(part.members) > 1:
+                ch = _straight_chain(st, part)
+                if ch is not None:
+                    a_line = (ch[0], _unit(ch[1] - ch[0]))
+                    break
+        _NORMALS.clear()
+        _NORMALS[key] = (st, a_line)
+    _, a_line = _NORMALS[key]
+    r = _radial(p)
+    if a_line is None or abs(a_line[1][2]) < 1e-6:
+        return r
+    a0, u = a_line
+    R = lambda z: float(np.hypot(*(a0 + (z - a0[2]) / u[2] * u)[:2]))
+    dRdz = (R(p[2] + 0.5) - R(p[2] - 0.5)) / 1.0
+    return _unit(r - np.array([0, 0, 1.0]) * dRdz)
+
+
+def strip_line(st: Structure, pi: int):
+    """Centre line (start, end, first member) of a straight strip as built: the outer (B) strips are pushed out
+    until they just touch every strip they cross."""
+    part = st.parts[pi]
+    p0, p1, m = _straight_chain(st, part)
+    if part.offset:
+        crossed = []
+        for jt in st.joints:
+            if jt.kind == "lap" and pi in jt.parts[:2]:
+                other = st.parts[jt.parts[0] if jt.parts[1] == pi else jt.parts[1]]
+                ch = _straight_chain(st, other)
+                if ch is not None and not other.offset and other.kind in ("diag", "leg"):
+                    crossed.append((ch[0], ch[1]))
+        k = 1.0
+        for _ in range(80):
+            q0 = p0 + _radial(p0) * part.offset * k
+            q1 = p1 + _radial(p1) * part.offset * k
+            if not crossed:
+                break
+            if min(_line_gap(q0, q1, a0, a1) for a0, a1 in crossed) >= part.offset * 1.005:
+                break
+            k += 0.0025
+        p0, p1 = q0, q1
+    return p0, p1, m
+
+
+def strip_twist(st: Structure, pi: int) -> float:
+    """How far (degrees) a strip turns about its own length from foot to top to stay flat to the surface."""
+    q0, q1, _ = strip_line(st, pi)
+    u = _unit(q1 - q0)
+    f = [(_unit(n - (n @ u) * u)) for n in (surface_normal(st, q0), surface_normal(st, q1))]
+    return float(np.degrees(np.arccos(np.clip(f[0] @ f[1], -1, 1))))
+
+
+def _twisted_stick(st: Structure, p0, p1, sec, grow: float, extend: float = 6.0, stations: int = 9) -> cq.Shape:
+    """A straight stick twisted slightly along its length so its faces stay flat to the tower surface (how a
+    strip really sits once it's seated in the collars and glued at every crossing)."""
+    u = _unit(p1 - p0)
+    L = float(np.linalg.norm(p1 - p0))
+    wires = []
+    for t in np.linspace(-extend / L, 1 + extend / L, stations):
+        c = p0 + u * L * t
+        n = surface_normal(st, c)
+        nf = _unit(n - (n @ u) * u)
+        side = np.cross(u, nf)
+        pl = cq.Plane(origin=tuple(map(float, c)), xDir=tuple(map(float, side)), normal=tuple(map(float, u)))
+        wires.append(cq.Workplane(pl).rect(sec.w + 2 * grow, sec.t + 2 * grow).wires().val())
+    return cq.Solid.makeLoft(wires, False)
+
+
 def _lap_ring_solid(st: Structure, part: Part, p0, p1, m, grow: float) -> cq.Shape:
-    """Half-lap ring piece: each end is cut along the middle of the strip it sits on (a plane through the strip's
-    axis and the radial line), so neighbouring pieces meet flush on the strip."""
-    body = cq.Workplane().add(member_solid(p0, p1, m.sec, m.ref, grow, extend=4.0))
-    for c, other, node in ((p0, p1, m.i), (p1, p0, m.j)):
+    """Half-lap ring piece, lying on the outer face of the B strip at each end and tilted to the tower surface.
+    Each end is cut along the middle of its strip (a plane through the strip's axis and its face normal), so
+    neighbouring pieces meet flush on the strip."""
+    dz = part.info.get("dz", 0.0)
+    ends = []
+    for node in (m.i, m.j):
         host = outer_strip_at(st, node, None)
-        ch = _straight_chain(st, st.parts[host]) if host is not None else None
-        if ch is None:
+        z = st.nodes[node][2] + dz
+        if host is not None and st.parts[host].kind in ("diag", "leg"):
+            h0, h1, _ = strip_line(st, host)
+            hu = _unit(h1 - h0)
+            hc = h0 + (z - h0[2]) / hu[2] * hu          # strip centre at this height
+            n = surface_normal(st, hc)
+            ends.append((hc + n * (st.parts[host].sec.size_z / 2 + part.sec.size_z / 2), hu, n))
+        else:
+            q = st.nodes[node] + _radial(st.nodes[node]) * part.offset + np.array([0, 0, dz])
+            ends.append((q, None, _radial(q)))
+    c0, c1 = ends[0][0], ends[1][0]
+    nmid = surface_normal(st, (c0 + c1) / 2)
+    u = _unit(c1 - c0)
+    ref = np.cross(nmid, u)
+    body = cq.Workplane().add(member_solid(c0, c1, m.sec, ref, grow, extend=4.0))
+    for (c, axis, nface), other in ((ends[0], c1), (ends[1], c0)):
+        if axis is None:
             continue
-        axis = _unit(ch[1] - ch[0])
-        n = np.cross(axis, _radial(c))
+        n = np.cross(axis, nface)
         if np.linalg.norm(n) < 1e-6:
             continue
         n = _unit(n)
@@ -207,6 +299,15 @@ def part_solids(st: Structure, pi: int, grow: float = 0.0) -> list[cq.Shape]:
                 q0, q1 = q0 + np.array([0, 0, dz]), q1 + np.array([0, 0, dz])
             ext = max(0.0, (part.length - float(np.linalg.norm(q1 - q0))) / 2)
             return [member_solid(q0, q1, m.sec, m.ref, grow, extend=ext)]
+        if part.kind in ("ring", "base", "cap") and "lap" in part.info.get("end_style", []) and len(part.members) == 1:
+            return [_lap_ring_solid(st, part, p0, p1, m, grow)]
+        if part.kind in ("diag", "leg") and len(part.members) > 1:
+            q0, q1, _ = strip_line(st, pi)
+            solid = _twisted_stick(st, q0, q1, m.sec, grow)
+            if not grow:
+                slab = cq.Solid.makeBox(1000, 1000, st.height, cq.Vector(-500, -500, 0))
+                solid = solid.intersect(slab)
+            return [solid]
         if part.offset:
             # push the straight outer stick out until it just touches every node it crosses
             # the sticks it crosses (centre lines), from its lap joints
@@ -685,7 +786,9 @@ def _guide_plate(chans: list[dict], idx: int) -> JigPart:
             body = body.cut(cq.Workplane().box(length - 10, w, 10, centered=(False, False, False))
                             .translate((5, y, base)))
             x1 = 5 + 1.5 + abs(math.tan(math.radians(90 - c["a0"]))) * w / 2
-            for xpos, ang in ((x1, c["a0"]), (x1 + c["L"], c["a1"])):
+            # sawing against the waste side of each 0.8 mm slot with a ~0.5 mm kerf leaves the piece
+            # (slot spacing − 0.2) long, so space them L + 0.2 apart
+            for xpos, ang in ((x1, c["a0"]), (x1 + c["L"] + 0.2, c["a1"])):
                 slot = (cq.Workplane().box(0.8, w + 2 * wall + 2, 10).translate((0, 0, 5))
                         .rotate((0, 0, 0), (0, 0, 1), 90 - ang).translate((xpos, yc, base)))
                 body = body.cut(slot)
@@ -794,7 +897,7 @@ def _level_sanding_jig(st: Structure, n: int) -> JigPart | None:
     off = 90 - st.parts[poses[0]["pi"]].end_angles[0]
     body = _text_cut(body, f"SJ{n}  LETTER FACE THIS SIDE", 3.2, 0, -22, H / 2, plane="XZ")
     return JigPart(f"end_sanding_jig_{int(round(off))}deg", body.val(), 1,
-                   f"Strip ends, about {off:.0f}° off square plus the inward tilt. Four slots: "
+                   f"Strip ends, {off:.1f}° off square in total (the lean and the inward tilt together). Four slots: "
                    f"{', '.join(p['letter'] + ' ' + p['end'] for p in poses)}. Letter face to the front.",
                    label=f"SJ{n}", engraved=True)
 

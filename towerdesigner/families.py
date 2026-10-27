@@ -873,29 +873,38 @@ def build_diagrid(p: dict, spec: Spec, family: str = "diagrid", sticks3: bool = 
                 x = unit(b.nodes[v] - b.nodes[u])
                 b.member(u, v, sec, "diag", pr, frame=True, K=1.0, ref=unit(np.cross(nrm, x)))
             (a_parts if fam == 0 else b_parts).append(pr)
-    # lap joints where the two families cross
-    for q in range(1, k):
+    # lap joints where the two families cross; with lapped (3x3) strips the A and B strips also meet at
+    # every foot and every top, so they're glued there too
+    cross_levels = range(0, k + 1) if b.joint_style == "lap" else range(1, k)
+    for q in cross_levels:
         for j in range(n):
             pa, pb = a_parts[j], b_parts[(j + q) % n]
-            ma = b.parts[pa].members[q - 1]
-            mb = b.parts[pb].members[q - 1]
+            ma = b.parts[pa].members[max(q - 1, 0) if q < k else k - 1]
+            mb = b.parts[pb].members[max(q - 1, 0) if q < k else k - 1]
             ang = max(angle_between(b.axis(ma), b.axis(mb)), 10.0)
             area = sec.size_y ** 2 / math.sin(math.radians(ang)) if sec.shape != "round" else 0.4 * sec.w ** 2
             per = 4 * sec.size_y / math.sin(math.radians(ang)) if sec.shape != "round" else 2 * sec.w
+            if q in (0, k):
+                area, per = area / 2, per / 2     # at a foot or top the level cut leaves only half the patch
             b.joints.append(Joint(N[q][j], (pa, pb), area, "lap", perimeter=per))
+
+    def ring_hosts(q):
+        # lapped rings lie on (and are glued to) the outer B strip through each node; flush rings sit on A
+        if b.joint_style == "lap":
+            return [b_parts[(i + q) % n] for i in range(n)]
+        return [a_parts[i] for i in range(n)]
 
     every = int(p["ring_every"])
     if every > 0:
         for q in range(1, k):
             if (q - 1) % every:
                 continue
-            hosts = [a_parts[i] for i in range(n)]
             b.ring([N[q][i] for i in range(n)], float(p["ring_t"]), float(p["ring_w"]), "strips", "ring",
-                   4, hosts, [sec] * n, name=f"Ring {q}")
+                   4, ring_hosts(q), [sec] * n, name=f"Ring {q}")
     b.ring([N[0][i] for i in range(n)], float(p["base_t"]), float(p["base_w"]), p["base_mode"], "base", 1,
-           a_parts, [sec] * n, name="Base ring")
+           ring_hosts(0), [sec] * n, name="Base ring")
     b.ring([N[k][i] for i in range(n)], float(p["cap_t"]), float(p["cap_w"]), p["cap_mode"], "cap", 5,
-           a_parts, [sec] * n, name="Top cap")
+           ring_hosts(k), [sec] * n, name="Top cap")
     return b.finish(list(N[0]), list(N[k]), z, a_parts, H,
                     info=dict(base_r=rb, top_r=rt, n=n, twist_k=k))
 

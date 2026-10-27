@@ -124,10 +124,12 @@ def export_all(family: str, params: dict, spec: Spec, outdir: str, progress=None
             shutil.copytree(src, os.path.join(outdir, "test kits", kit), dirs_exist_ok=True)
             files[f"test kits/{kit}/"] = "print and use before building (guide section 5)"
 
-    say("Writing instructions")
-    files["instructions.html"] = "this page"
-    page = make_html(st, res, spec, sheets, problems, jig_parts, jig_notes, files)
-    with open(os.path.join(outdir, "instructions.html"), "w") as f:
-        f.write(page)
+    if not st.family.endswith("3"):
+        # the older one-page instructions; the 3x3 towers get the full assembly guide instead
+        say("Writing instructions")
+        files["instructions.html"] = "this page"
+        page = make_html(st, res, spec, sheets, problems, jig_parts, jig_notes, files)
+        with open(os.path.join(outdir, "instructions.html"), "w") as f:
+            f.write(page)
     say("Done")
     return dict(outdir=outdir, result=res, structure=st, sheets=sheets, jig=jig_parts, notes=jig_notes + problems)

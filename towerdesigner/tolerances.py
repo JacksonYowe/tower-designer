@@ -16,6 +16,9 @@ SAND_ALLOW = 0.15        # mm, extra length left on each strip end for the sandi
 MARK_TOL = 0.5           # mm, pencil tick through a marking-gauge notch
 MIN_HEIGHT_MARGIN = 0.5  # mm, the tower must still be over the minimum height at the worst tolerance
 GLUE_GAP = 0.1           # mm, a gap no thicker than a glue film still counts as touching
+MIN_CONTACT = 0.6        # at least this share of every glue face must touch
+PEG_CLOSE = 0.4          # mm, a gap a peg closes by bending a long strip slightly
+PRESS_BAND = 0.2         # mm, what a peg or finger pressure squeezes flat (balsa crushes this much)
 
 
 def rows(st: Structure, spec, jig_parts) -> list[dict]:
@@ -47,11 +50,20 @@ def rows(st: Structure, spec, jig_parts) -> list[dict]:
         out.append(dict(item="Strip length (after sanding)", nominal=f"{L:.1f} mm", tol=f"±{CUT_TOL:.1f} mm",
                         jig="Marking gauge MG1 has an END notch with a small tick 0.3 mm either side.",
                         check="The strip's top end lands between the two small ticks."))
-        out.append(dict(item="Strip end angle", nominal=f"level cut (~{tilt:.0f}° plus the inward tilt)",
+        out.append(dict(item="Strip end angle", nominal=f"level cut, {tilt:.1f}° off square in total (lean + inward tilt)",
                         tol=f"±{play:.1f}° (≤ {3 * math.tan(math.radians(play)):.2f} mm across the end)",
                         jig="Sanding jig SJ1 holds the strip at the exact compound angle; the slot clearance sets "
                             "the tolerance.",
                         check="The strip stands on the table at its lean without rocking."))
+        tw = cad.strip_twist(st, level[0])
+        out.append(dict(item="Strip twist", nominal=f"{tw:.0f}° from foot to top", tol="±3°",
+                        jig="Every collar notch is angled to the twist at its height, with "
+                            f"{cad.FIT:.2f} mm clearance; damp strips take the twist without strain.",
+                        check="Each strip lies flat in every notch, no edge lifting."))
+        out.append(dict(item="Crossing gap before pegging", nominal="0 mm", tol=f"up to {PEG_CLOSE:.1f} mm",
+                        jig="A straight strip can't sit exactly on every curved crossing; the 3D check shows gaps of "
+                            "up to about 0.3 mm. A peg bends the strip that little to close it.",
+                        check="With the peg on, no light between the faces (gap under 0.1 mm)."))
         out.append(dict(item="Crossing marks", nominal="at each level", tol=f"±{MARK_TOL:.1f} mm",
                         jig="MG1 notches are 0.8 mm wide: put the pencil in the middle.",
                         check="A and B ticks line up at every crossing in the dry fit."))
@@ -93,8 +105,9 @@ def rows(st: Structure, spec, jig_parts) -> list[dict]:
                     jig="The collars hold every strip at its radius.",
                     check=f"The pole slides through without touching; at least {max(0.0, gap - spec.sway):.1f} mm "
                           "even with a lean."))
-    out.append(dict(item="Base ring in its groove", nominal="0.5 mm above the plate", tol="±0.2 mm",
-                    jig="The groove is cut 0.5 mm deeper than the ring, so it never touches the plastic.",
+    out.append(dict(item="Base ring in its groove", nominal=f"{cad.FIT:.2f} mm clear all round", tol="±0.15 mm (print)",
+                    jig=f"The groove is the ring's own shape grown by {cad.FIT:.2f} mm, so the ring never touches the "
+                        "plastic; the strips hold it.",
                     check="The ring isn't touching the base plate anywhere."))
     return out
 
@@ -111,75 +124,115 @@ def cut_tolerance(st: Structure, pis: list[int]) -> str:
     return f"±{CUT_TOL:.1f} (end gap ≤ {2 * CUT_TOL:.1f})"
 
 
+def face_angle(st: Structure, a: int, b: int, node: int) -> float:
+    """Angle (degrees) between two crossing strips' facing faces at a node, with both twisted to the surface."""
+    z = st.nodes[node][2]
+    fs = []
+    for i in (a, b):
+        q0, q1, _ = cad.strip_line(st, i)
+        u = (q1 - q0) / np.linalg.norm(q1 - q0)
+        p = q0 + (z - q0[2]) / u[2] * u
+        n = cad.surface_normal(st, p)
+        f = n - (n @ u) * u
+        fs.append(f / np.linalg.norm(f))
+    return float(np.degrees(np.arccos(np.clip(fs[0] @ fs[1], -1, 1))))
+
+
 def fit_report(st: Structure, jig_parts=None) -> list[tuple[str, str, bool]]:
-    """Check the 3D model: does every glued pair touch, does nothing overlap that shouldn't, does the jig clear
-    the tower? Returns (check, result, ok)."""
-    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+    """Check the 3D model the way a builder would: for every glued pair, how much of the glue face really touches
+    (within a glue film of GLUE_GAP), how deep any overlap is, and whether the jig clears the tower.
+    Returns (check, result, ok)."""
+    sol, grown = {}, {}
 
-    def dist(a, b):
-        d = BRepExtrema_DistShapeShape(a.wrapped, b.wrapped)
-        d.Perform()
-        return d.Value()
+    def solid(i):
+        if i not in sol:
+            sol[i] = cad.part_solids(st, i)[0]
+        return sol[i]
 
-    def overlap_depth(a, b):
-        """Rough interference depth (mm): overlap volume ÷ the smaller face it could spread over."""
-        if not cad._bb_overlap(a.BoundingBox(), b.BoundingBox(), 0):
+    def thick(i):
+        if i not in grown:
+            grown[i] = cad.part_solids(st, i, grow=GLUE_GAP)[0]
+        return grown[i]
+
+    def vol(a, b):
+        if not cad._bb_overlap(a.BoundingBox(), b.BoundingBox(), 0.2):
             return 0.0
         try:
-            v = a.intersect(b).Volume()
+            return a.intersect(b).Volume()
         except Exception:
             return 0.0
-        return v / 9.0
 
-    sol = {i: cad.part_solids(st, i) for i, p in enumerate(st.parts) if p.sec is not None}
-    one = {i: s[0] for i, s in sol.items() if s}
-    out = []
-    groups = {}
-    for j, jt in enumerate(st.joints):
+    groups: dict[str, list] = {}
+    for jt in st.joints:
         a, b = jt.parts[0], jt.parts[1]
-        if a not in one or b not in one:
-            continue
         pa, pb = st.parts[a], st.parts[b]
+        if pa.sec is None or pb.sec is None:
+            continue
         if jt.kind == "lap" and pa.kind == "diag" and pb.kind == "diag":
-            key = "Crossings: B strip touches A strip"
+            key = "Crossings, feet and tops: B strip glued to A strip"
         elif jt.kind == "lap":
-            key = "Ring laps: each piece touches the next"
+            key = "Ring pieces glued to the next piece"
         elif jt.kind in ("lap end", "scarf end"):
-            # the ring end is really glued to the outer (B) strip at that crossing
             b = cad.outer_strip_at(st, jt.node, b)
-            key = "Ring ends: piece touches its strip"
+            key = "Ring ends glued to their strip"
         else:
             continue
-        g = dist(one[a], one[b])
-        dpt = overlap_depth(one[a], one[b])
-        groups.setdefault(key, []).append((g, dpt))
+        ov = vol(solid(a), solid(b))
+        gap = 0.0
+        if ov < 1e-3:
+            from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+            d = BRepExtrema_DistShapeShape(solid(a).wrapped, solid(b).wrapped)
+            d.Perform()
+            gap = d.Value()
+        # once pegged (the strip bends to close any gap), how much of the face is within PRESS_BAND?
+        g0 = cad.part_solids(st, a, grow=gap)[0] if gap > 1e-3 else solid(a)
+        g1 = cad.part_solids(st, a, grow=gap + PRESS_BAND)[0]
+        touch = max(0.0, vol(g1, solid(b)) - vol(g0, solid(b))) / PRESS_BAND
+        nominal = max(jt.area, 1e-6)
+        angle = face_angle(st, a, b, jt.node) if key.startswith("Crossings") else 0.0
+        groups.setdefault(key, []).append((touch / nominal, ov / nominal, gap, angle))
+    out = []
+    for key, vals in groups.items():
+        worst = min(v[0] for v in vals)
+        mean = sum(v[0] for v in vals) / len(vals)
+        depth = max(v[1] for v in vals)
+        gmax = max(v[2] for v in vals)
+        amax = max(v[3] for v in vals)
+        ok = worst >= MIN_CONTACT and depth <= 0.5 and gmax <= PEG_CLOSE and amax <= 2.0
+        txt = (f"{len(vals)} joints: glue face touching {100 * min(mean, 1):.0f} % on average, worst "
+               f"{100 * min(worst, 1):.0f} % (within {PRESS_BAND:.1f} mm, pressed); deepest overlap {depth:.2f} mm")
+        if amax > 0:
+            txt += f"; faces within {amax:.1f}° of parallel"
+        if gmax > GLUE_GAP / 2:
+            txt += f"; largest gap before pegging {gmax:.2f} mm (the strip bends to close it)"
+        out.append((key, txt, ok))
     # half-lap rings: neighbouring pieces meet end to end on each strip
     ends: dict[int, list[int]] = {}
     for i, p in enumerate(st.parts):
-        if p.kind in ("ring", "base", "cap") and "lap" in p.info.get("end_style", []) and i in one:
+        if p.kind in ("ring", "base", "cap") and "lap" in p.info.get("end_style", []) and p.sec is not None:
             m = st.members[p.members[0]]
             for nd in (m.i, m.j):
                 ends.setdefault(nd, []).append(i)
-    for nd, ps in ends.items():
-        if len(ps) == 2:
-            a, b = ps
-            groups.setdefault("Ring pieces meet end to end on each strip", []).append(
-                (dist(one[a], one[b]), overlap_depth(one[a], one[b])))
-    for key, vals in groups.items():
-        worst_gap = max(v[0] for v in vals)
-        worst_in = max(v[1] for v in vals)
-        ok = worst_gap <= GLUE_GAP and worst_in <= 0.5
-        out.append((key, f"{len(vals)} joints: largest gap {worst_gap:.2f} mm, deepest overlap {worst_in:.2f} mm", ok))
+    pairs = [ps for ps in ends.values() if len(ps) == 2]
+    if pairs:
+        from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+        gaps = []
+        for a, b in pairs:
+            d = BRepExtrema_DistShapeShape(solid(a).wrapped, solid(b).wrapped)
+            d.Perform()
+            gaps.append((d.Value(), vol(solid(a), solid(b))))
+        g, v = max(x[0] for x in gaps), max(x[1] for x in gaps)
+        out.append(("Neighbouring ring pieces meet on each strip", f"{len(gaps)} joints: largest gap {g:.2f} mm, "
+                    f"largest overlap {v:.2f} mm³", g <= GLUE_GAP and v <= 1.0))
     if jig_parts is not None:
         from .stepmodels import jig_layout
         lay = jig_layout(st, jig_parts)
-        clash, near = 0, 99.0
+        tower = [solid(i) for i, p in enumerate(st.parts) if p.sec is not None]
+        clash = 0
         for name, js in lay.items():
             jb = js.BoundingBox()
-            for t in one.values():
-                if not cad._bb_overlap(jb, t.BoundingBox(), 1.0):
-                    continue
-                if js.intersect(t).Volume() > 0.01:
+            for t in tower:
+                if cad._bb_overlap(jb, t.BoundingBox(), 1.0) and js.intersect(t).Volume() > 0.01:
                     clash += 1
         out.append(("Jig never overlaps the tower", f"{clash} overlaps", clash == 0))
     return out

@@ -832,7 +832,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if r["notes"]:
             msg += "\n\nNotes:\n" + "\n".join(r["notes"])
         self.statusBar().showMessage(f"Exported to {r['outdir']}", 0)
-        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(os.path.join(r["outdir"], "instructions.html")))
+        page = "Assembly guide.pdf" if os.path.exists(os.path.join(r["outdir"], "Assembly guide.pdf")) else "instructions.html"
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(os.path.join(r["outdir"], page)))
         QtWidgets.QMessageBox.information(self, "Build pack ready", msg)
 
     def open_export(self):

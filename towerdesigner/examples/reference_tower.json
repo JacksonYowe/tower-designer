@@ -1,11 +1,11 @@
 {
   "family": "diagrid3",
   "params": {
-    "n_sides": 20,
-    "twist": 0.24460249363811576,
-    "base_r": 71.46879552864962,
-    "top_ratio": 0.7029158791227632,
-    "ring_every": 1,
+    "n_sides": 22,
+    "twist": 0.17862748844515267,
+    "base_r": 45.252492580615936,
+    "top_ratio": 0.863011594604945,
+    "ring_every": 2,
     "joint": "lap",
     "ring_joint": "half lap",
     "member_type": "shaved",
@@ -60,9 +60,9 @@
     ]
   },
   "summary": {
-    "load_kg": 70.81336908578598,
-    "mass_g": 18.37688502579761,
-    "governing": "Strip B13 crushes",
+    "load_kg": 59.78320170938078,
+    "mass_g": 19.029306485472002,
+    "governing": "Strip A11 buckles",
     "glue": "mixed"
   }
 }

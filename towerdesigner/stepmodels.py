@@ -118,7 +118,9 @@ def plan_steps(st: Structure, jig_parts) -> list[Step]:
             "left end, where the two cross (left and right as you look at the tower from outside). Work from right to "
             "left, so every right end has a piece to sit on. Double-glue the strip patch under each left end and the "
             "two faces where the pieces cross." if shingle
-            else "Neighbouring pieces meet end to end on a B strip, each covering half its width.")
+            else "Neighbouring pieces meet end to end on a B strip, each covering half its width. Every piece has the "
+                 "arrow you drew when cutting it: <b>arrow on the outside, pointing right</b> (its two ends are cut at "
+                 "different angles, so a piece the wrong way round won't sit flush).")
     close = (" Leave the <b>first</b> piece's right end unglued and lifted slightly; when you get back round, slide the "
              "last piece's left end underneath it, then glue both." if shingle else "")
     if st.family.startswith("diagrid"):
@@ -126,6 +128,10 @@ def plan_steps(st: Structure, jig_parts) -> list[Step]:
             ps = sorted(by.get(group, []), key=lambda i: _natural(ids[i]))
             return f"{ids[ps[0]]}–{ids[ps[-1]]}" if ps else ""
         n_str = len(by.get("Strip A", []))
+        n_lv = len(st.levels) - 2
+        lapped = st.params.get("joint") == "lap"
+        per_b = n_lv + (2 if lapped else 0)          # crossings, plus the foot and the top on lapped towers
+        twist = max((cad.strip_twist(st, i) for i in by.get("Strip A", [])[:1]), default=0.0)
         la, lb = lean_side(st, "Strip A"), lean_side(st, "Strip B")
         rings = sorted((g for g in by if g.startswith("Ring")), key=lambda g: int(g.split()[1]))
         mg = names.get("marking_gauge", "MG1")
@@ -141,6 +147,10 @@ def plan_steps(st: Structure, jig_parts) -> list[Step]:
                 "so on round.",
                 "Stand the strip with its foot in the <b>inner</b> arm of the V, letter face outwards, lean it to the "
                 f"{la}, and press it into the notch of every collar it passes, from C1 up to C{n_col}.",
+                f"The tower's surface curves, so a strip has to <b>twist about {twist:.0f}°</b> along its length to lie "
+                "flat in every notch (the notches are angled to match). Wipe each strip with a just-damp cloth first: "
+                "damp balsa takes the twist without strain. Let the strips dry in the jig for at least 2 hours before "
+                "any gluing, so they keep the twist.",
                 f"Hold it with a masking-tape tab at collars {tabs}: tape over the strip with the ends pressed onto "
                 "the top and bottom of the collar. The tabs sit between the B strips' paths, so the B strips never lie "
                 "on them.",
@@ -158,23 +168,29 @@ def plan_steps(st: Structure, jig_parts) -> list[Step]:
                 "should sit right over the crossing with an A strip (the A strip's tick at the same height). Take it "
                 "out again.",
                 "<b>Glue in batches of three strips.</b> Balsa cement needs two coats. Brush a thin coat on each B "
-                "strip's <b>inner</b> face (opposite the letter) at its six ticks, and on the A strips' outer face at "
-                "the six crossings each B strip will touch. Wait 5–10 min until it's tacky.",
+                f"strip's <b>inner</b> face (opposite the letter) at its {n_lv} ticks"
+                + (" and at its foot and top" if lapped else "") +
+                f", and on the A strips' outer face at the {per_b} places each B strip will touch. Wait 5–10 min "
+                "until it's tacky.",
                 "Add a second thin coat on the A side, stand the B strip in its pocket and lay it on. Press each "
-                "crossing for 30 s, working from the bottom up. If a crossing springs apart, clip a small spring peg "
-                "across it (one jaw inside the A strip, one outside the B strip) until it grabs.",
-                f"Go round to the right in order: B1–B3, then B4–B6, and so on. That's {6 * n_str} crossings, "
+                "crossing for 30 s, working from the bottom up, and <b>clip a small spring peg across every "
+                "crossing</b> (one jaw inside the A strip, one outside the B strip). A straight strip can't sit "
+                "exactly on every curved crossing: the peg bends it the last 0.1–0.3 mm so the faces close flat."
+                + (" The B strip also gets glued to the A strip at the foot (they share the pocket) and at the top." if
+                   lapped else ""),
+                "Like the A strips, the B strips twist slightly to sit flat; wipe them with a damp cloth first.",
+                f"Go round to the right in order: B1–B3, then B4–B6, and so on. That's {per_b * n_str} joints, "
                 "about 2 hours. Split it over two sessions if you like; stop after a complete batch.",
                 "Wipe off any glue that squeezes out. It adds mass and no strength.",
-            ], checks=["Every crossing has glue and the faces touch fully.",
-                       "B strips sit tight against A; no gaps over 0.5 mm.",
+            ], checks=["Every crossing has glue and a peg, and the faces touch flat (no light between them).",
+                       "Once pegged, no gap over 0.1 mm at any crossing.",
                        "All the masking-tape tabs are still on the outside of the A strips and free of glue."],
                 mistakes=["Gluing a crossing before the strip is fully seated in its pocket locks in a crooked strip.",
                           "Coating only one face with balsa cement: it soaks in and the joint stays weak."]),
             Step("base", "Base ring", by.get("Base ring", []), jig_all, [
                 f"Take the base-ring pieces ({rng('Base ring')}). Each one runs from one foot to the next.",
-                "Lay a piece on the outside of the B strips so it rests in the shallow groove in the base plate. The "
-                "groove holds it 0.5 mm above the table, so it never touches the jig.",
+                "Lay a piece on the outside of the B strips, in the shallow groove in the base plate. The strips hold "
+                f"it: the groove leaves {cad.FIT:.2f} mm of air all round, so it never touches or sticks to the plastic.",
                 meet + " Glue each end on its strip (dot colour = glue, see the picture). Start at the "
                 f"<b>{mark}</b> mark." + close,
             ], checks=["The base ring sits in its groove all the way round; every piece touches both strips."]),
